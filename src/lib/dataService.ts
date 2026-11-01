@@ -4,6 +4,17 @@ export const APPLICANTS_KEY = 'jp_applicants'
 export const SESSION_KEY = 'jp_session'
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+
+const resolveApiUrl = (path: string) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}/api${normalizedPath}`
+  }
+
+  return `/api${normalizedPath}`
+}
 
 const seedApplicants: Applicant[] = [
   {
@@ -66,7 +77,7 @@ const getSessionToken = () => {
 
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getSessionToken()
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(resolveApiUrl(path), {
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

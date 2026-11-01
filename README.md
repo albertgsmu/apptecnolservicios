@@ -94,12 +94,22 @@ Comandos recomendados:
 
 ```bash
 cp .env.example .env
-# ajustar DATABASE_URL y JWT_SECRET
+# ajustar DATABASE_URL, JWT_SECRET y VITE_API_URL
 npm run db:generate
 npm run db:push
 npm run db:seed
 npm run dev
 ```
+
+## Deploy en Vercel
+
+Si el frontend ya está en Vercel, la app debe apuntar al backend con una variable de entorno real:
+
+```bash
+VITE_API_URL=https://tu-backend-url.com
+```
+
+No uses rutas relativas `/api` si el backend no vive en el mismo dominio. El frontend actual ya fue ajustado para soportar `VITE_API_URL` y mantener compatibilidad local.
 
 ## Próximo nivel real
 
