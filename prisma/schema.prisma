@@ -1,0 +1,202 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum RoleName {
+  GERENTE
+  SECRETARIA
+  SUPERVISOR
+  RRHH
+  ADMINISTRACION
+}
+
+enum UserStatus {
+  ACTIVO
+  INACTIVO
+  SUSPENDIDO
+}
+
+enum EmployeeStatus {
+  ACTIVO
+  VACACIONES
+  LICENCIA
+  INACTIVO
+}
+
+enum ApplicantStatus {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum OrderPriority {
+  BAJA
+  MEDIA
+  ALTA
+  CRITICA
+}
+
+enum OrderStatus {
+  PROGRAMADA
+  ASIGNADA
+  EN_EJECUCION
+  REVISION
+  CERRADA
+}
+
+enum ContractStatus {
+  VIGENTE
+  REVISION
+  VENCIDO
+  CANCELADO
+}
+
+enum AttendanceStatus {
+  PRESENTE
+  TARDEZ
+  AUSENTE
+  VACACIONES
+  LICENCIA
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  passwordHash String
+  name         String
+  role         RoleName
+  status       UserStatus  @default(ACTIVO)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  employee     Employee?
+  notifications Notification[]
+  auditLogs    AuditLog[]
+}
+
+model RolePermission {
+  id        String   @id @default(cuid())
+  role      RoleName
+  module    String
+  canRead   Boolean  @default(false)
+  canWrite  Boolean  @default(false)
+  canDelete Boolean  @default(false)
+
+  @@unique([role, module])
+}
+
+model Employee {
+  id          String          @id @default(cuid())
+  userId      String          @unique
+  fullName    String
+  position    String
+  department  String
+  status      EmployeeStatus  @default(ACTIVO)
+  phone       String
+  address     String
+  hireDate    DateTime
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  user        User            @relation(fields: [userId], references: [id])
+  attendance  Attendance[]
+  workOrders  WorkOrder[]     @relation("AssignedEmployee")
+  notifications Notification[]
+}
+
+model Attendance {
+  id         String            @id @default(cuid())
+  employeeId String
+  date       DateTime
+  checkIn    DateTime?
+  checkOut   DateTime?
+  status     AttendanceStatus
+  notes      String?
+  createdAt  DateTime          @default(now())
+
+  employee   Employee          @relation(fields: [employeeId], references: [id])
+}
+
+model Applicant {
+  id               String          @id @default(cuid())
+  fullName         String
+  email            String
+  phone            String
+  birthDate        DateTime
+  gender           String
+  address          String
+  city             String
+  identityNumber   String
+  education        String
+  area             String
+  experience       String
+  skills           String[]
+  availability     String
+  emergencyContact String
+  emergencyPhone   String
+  documents        String[]
+  status           ApplicantStatus @default(PENDIENTE)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model WorkOrder {
+  id             String      @id @default(cuid())
+  client         String
+  area           String
+  priority       OrderPriority
+  status         OrderStatus @default(PROGRAMADA)
+  progress       Int         @default(0)
+  assignedTo     String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  assignedEmployee Employee? @relation("AssignedEmployee", fields: [assignedTo], references: [id])
+}
+
+model Contract {
+  id        String         @id @default(cuid())
+  name      String
+  vendor    String
+  amount    Decimal
+  dueDate   DateTime
+  status    ContractStatus @default(VIGENTE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  managerId String?
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String
+  employeeId  String?
+  type        String
+  message     String
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  recipient   User      @relation(fields: [recipientId], references: [id])
+  employee    Employee? @relation(fields: [employeeId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
