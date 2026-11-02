@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": {
+      "value": "jpmantenimiento"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "appServiceSku": {
+      "value": "B1"
+    },
+    "postgresAdminUser": {
+      "value": "jpadmin"
+    },
+    "frontendOrigin": {
+      "value": "https://jpmantenimiento-web.azurestaticapps.net"
+    },
+    "jwtSecret": {
+      "value": "replace-with-a-strong-jwt-secret"
+    },
+    "postgresAdminPassword": {
+      "value": "ReplaceWithStrongPassword123!"
+    }
+  }
+}

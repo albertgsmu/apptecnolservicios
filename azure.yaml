@@ -1,0 +1,15 @@
+name: apptecnolservicios
+metadata:
+  template: apptecnolservicios@0.0.1
+infra:
+  provider: bicep
+  path: infra
+services:
+  api:
+    project: ./
+    host: appservice
+    language: js
+    hooks:
+      prepackage:
+        shell: sh
+        run: npm install --no-fund --no-audit

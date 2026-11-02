@@ -243,7 +243,44 @@ const createApplicantId = async () => {
   return `SOL-${String(next).padStart(4, '0')}`
 }
 
-app.use(cors())
+const normalizeOrigins = (value) => String(value ?? '')
+  .split(',')
+  .map((entry) => entry.trim())
+  .filter(Boolean)
+
+const allowedOrigins = normalizeOrigins(process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:5177,https://*.vercel.app')
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) {
+    return true
+  }
+
+  return allowedOrigins.some((entry) => {
+    if (entry.includes('*')) {
+      const regex = new RegExp(`^${entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*')}$`)
+      return regex.test(origin)
+    }
+
+    return entry === origin
+  })
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true)
+    }
+
+    if (!origin) {
+      return callback(null, true)
+    }
+
+    return callback(new Error(`Origin not allowed: ${origin}`))
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}))
 app.use(express.json())
 
 await ensureDatabase()
