@@ -1,16 +1,17 @@
 import bcrypt from 'bcryptjs'
 import cors from 'cors'
+import dotenv from 'dotenv'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import { createServer } from 'node:http'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Server } from 'socket.io'
-import sqlite3 from 'sqlite3'
-import { open } from 'sqlite'
+import pg from 'pg'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+dotenv.config({ path: '.env.local' })
+dotenv.config()
+
+const { Pool } = pg
+
 const app = express()
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
@@ -22,74 +23,87 @@ const io = new Server(httpServer, {
 const DEFAULT_PORT = Number(process.env.PORT ?? 3003)
 let PORT = DEFAULT_PORT
 const JWT_SECRET = process.env.JWT_SECRET ?? 'jp-mantenimiento-secret-dev'
-const DB_PATH = path.join(__dirname, 'data', 'jp.db')
 
-const db = await open({
-  filename: DB_PATH,
-  driver: sqlite3.Database,
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
 })
 
+const dbQuery = async (text, params = []) => {
+  const result = await pool.query(text, params)
+  return result.rows
+}
+
+const dbGet = async (text, params = []) => {
+  const result = await pool.query(text, params)
+  return result.rows[0] ?? null
+}
+
+const dbRun = async (text, params = []) => {
+  return pool.query(text, params)
+}
+
 const ensureDatabase = async () => {
-  await db.exec(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
       role TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS employees (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      area TEXT NOT NULL,
-      title TEXT NOT NULL,
-      status TEXT NOT NULL,
-      shift TEXT NOT NULL,
-      score INTEGER NOT NULL DEFAULT 0,
-      lastEntry TEXT NOT NULL,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
+      "id" TEXT PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "area" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "status" TEXT NOT NULL,
+      "shift" TEXT NOT NULL,
+      "score" INTEGER NOT NULL DEFAULT 0,
+      "lastEntry" TEXT NOT NULL,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS applicants (
-      id TEXT PRIMARY KEY,
-      fullName TEXT NOT NULL,
+      "id" TEXT PRIMARY KEY,
+      "fullName" TEXT NOT NULL,
       email TEXT NOT NULL,
       phone TEXT NOT NULL,
-      birthDate TEXT NOT NULL,
+      "birthDate" TEXT NOT NULL,
       gender TEXT NOT NULL,
       address TEXT NOT NULL,
       city TEXT NOT NULL,
-      identityNumber TEXT NOT NULL,
+      "identityNumber" TEXT NOT NULL,
       education TEXT NOT NULL,
       area TEXT NOT NULL,
       experience TEXT NOT NULL,
       skills TEXT NOT NULL DEFAULT '[]',
       availability TEXT NOT NULL,
-      emergencyContact TEXT NOT NULL,
-      emergencyPhone TEXT NOT NULL,
+      "emergencyContact" TEXT NOT NULL,
+      "emergencyPhone" TEXT NOT NULL,
       documents TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL,
-      createdAt TEXT NOT NULL
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `)
 
-  const count = await db.get('SELECT COUNT(*) AS total FROM users')
+  const count = await dbGet('SELECT COUNT(*) AS total FROM users')
   if (Number(count.total) === 0) {
     const hashedPassword = await bcrypt.hash('JPsecure123', 10)
-    await db.run(
-      `INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    await dbRun(
+      `INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
       ['user-gerente', 'gerente@jpmantenimiento.com', hashedPassword, 'Gerente General', 'Gerente', new Date().toISOString()],
     )
-    await db.run(
-      `INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    await dbRun(
+      `INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
       ['user-secretaria', 'secretaria@jpmantenimiento.com', await bcrypt.hash('JPsecure123', 10), 'Secretaria General', 'Secretaria', new Date().toISOString()],
     )
   }
 
-  const employeeCount = await db.get('SELECT COUNT(*) AS total FROM employees')
+  const employeeCount = await dbGet('SELECT COUNT(*) AS total FROM employees')
   if (Number(employeeCount.total) === 0) {
     const seedEmployees = [
       { id: 'EMP-1042', name: 'Luis Salas', area: 'Electricidad', title: 'Técnico senior', status: 'Activo', shift: 'Matutino', score: 96, lastEntry: '07:05' },
@@ -101,14 +115,14 @@ const ensureDatabase = async () => {
     ]
 
     for (const employee of seedEmployees) {
-      await db.run(
-        `INSERT INTO employees (id, name, area, title, status, shift, score, lastEntry, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      await dbRun(
+        `INSERT INTO employees ("id", "name", "area", "title", "status", "shift", "score", "lastEntry", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [employee.id, employee.name, employee.area, employee.title, employee.status, employee.shift, employee.score, employee.lastEntry, new Date().toISOString(), new Date().toISOString()],
       )
     }
   }
 
-  const applicantCount = await db.get('SELECT COUNT(*) AS total FROM applicants')
+  const applicantCount = await dbGet('SELECT COUNT(*) AS total FROM applicants')
   if (Number(applicantCount.total) === 0) {
     const seedApplicants = [
       {
@@ -156,8 +170,8 @@ const ensureDatabase = async () => {
     ]
 
     for (const applicant of seedApplicants) {
-      await db.run(
-        `INSERT INTO applicants (id, fullName, email, phone, birthDate, gender, address, city, identityNumber, education, area, experience, skills, availability, emergencyContact, emergencyPhone, documents, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      await dbRun(
+        `INSERT INTO applicants ("id", "fullName", email, phone, "birthDate", gender, address, city, "identityNumber", education, area, experience, skills, availability, "emergencyContact", "emergencyPhone", documents, status, "createdAt") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
         [
           applicant.id,
           applicant.fullName,
@@ -238,7 +252,7 @@ const authRequired = (req, res, next) => {
 }
 
 const createApplicantId = async () => {
-  const row = await db.get('SELECT MAX(CAST(REPLACE(id, "SOL-", "") AS INTEGER)) AS maxId FROM applicants')
+  const row = await dbGet("SELECT COALESCE(MAX(CAST(REPLACE(\"id\", 'SOL-', '') AS INTEGER)), 100) AS \"maxId\" FROM applicants")
   const next = Number(row?.maxId ?? 100) + 1
   return `SOL-${String(next).padStart(4, '0')}`
 }
@@ -296,7 +310,7 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ message: 'Correo y contraseña requeridos.' })
   }
 
-  const user = await db.get('SELECT * FROM users WHERE lower(email) = lower(?)', [String(email)])
+  const user = await dbGet('SELECT * FROM users WHERE lower(email) = lower($1)', [String(email)])
   if (!user) {
     return res.status(401).json({ message: 'Credenciales incorrectas.' })
   }
@@ -323,7 +337,7 @@ app.post('/api/auth/login', async (req, res) => {
 })
 
 app.get('/api/auth/me', authRequired, async (req, res) => {
-  const user = await db.get('SELECT email, name, role FROM users WHERE id = ?', [req.user.sub])
+  const user = await dbGet('SELECT email, name, role FROM users WHERE id = $1', [req.user.sub])
 
   if (!user) {
     return res.status(404).json({ message: 'Usuario no encontrado.' })
@@ -339,7 +353,7 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
 })
 
 app.get('/api/employees', authRequired, async (_req, res) => {
-  const rows = await db.all('SELECT * FROM employees ORDER BY createdAt DESC')
+  const rows = await dbQuery('SELECT * FROM employees ORDER BY "createdAt" DESC')
   return res.json(rows.map(parseEmployee))
 })
 
@@ -351,7 +365,7 @@ app.patch('/api/employees/:id/status', authRequired, async (req, res) => {
     return res.status(400).json({ message: 'Estado no válido.' })
   }
 
-  const employee = await db.get('SELECT * FROM employees WHERE id = ?', [req.params.id])
+  const employee = await dbGet('SELECT * FROM employees WHERE id = $1', [req.params.id])
   if (!employee) {
     return res.status(404).json({ message: 'Empleado no encontrado.' })
   }
@@ -361,15 +375,15 @@ app.patch('/api/employees/:id/status', authRequired, async (req, res) => {
     status,
   }
 
-  await db.run('UPDATE employees SET status = ?, updatedAt = ? WHERE id = ?', [status, new Date().toISOString(), req.params.id])
-  const employees = await db.all('SELECT * FROM employees ORDER BY createdAt DESC')
+  await dbRun('UPDATE employees SET status = $1, "updatedAt" = $2 WHERE id = $3', [status, new Date().toISOString(), req.params.id])
+  const employees = await dbQuery('SELECT * FROM employees ORDER BY "createdAt" DESC')
   io.emit('employees:updated', employees.map(parseEmployee))
 
   return res.json(updated)
 })
 
 app.get('/api/applicants', authRequired, async (_req, res) => {
-  const rows = await db.all('SELECT * FROM applicants ORDER BY createdAt DESC')
+  const rows = await dbQuery('SELECT * FROM applicants ORDER BY "createdAt" DESC')
   return res.json(rows.map(parseApplicant))
 })
 
@@ -400,8 +414,8 @@ app.post('/api/applicants', async (req, res) => {
     ...normalized,
   }
 
-  await db.run(
-    `INSERT INTO applicants (id, fullName, email, phone, birthDate, gender, address, city, identityNumber, education, area, experience, skills, availability, emergencyContact, emergencyPhone, documents, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  await dbRun(
+    `INSERT INTO applicants ("id", "fullName", email, phone, "birthDate", gender, address, city, "identityNumber", education, area, experience, skills, availability, "emergencyContact", "emergencyPhone", documents, status, "createdAt") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
     [
       created.id,
       created.fullName,
@@ -436,7 +450,7 @@ app.patch('/api/applicants/:id/status', authRequired, async (req, res) => {
     return res.status(400).json({ message: 'Estado no válido.' })
   }
 
-  const applicant = await db.get('SELECT * FROM applicants WHERE id = ?', [req.params.id])
+  const applicant = await dbGet('SELECT * FROM applicants WHERE id = $1', [req.params.id])
   if (!applicant) {
     return res.status(404).json({ message: 'Solicitante no encontrado.' })
   }
@@ -446,14 +460,14 @@ app.patch('/api/applicants/:id/status', authRequired, async (req, res) => {
     status,
   }
 
-  await db.run('UPDATE applicants SET status = ? WHERE id = ?', [status, req.params.id])
+  await dbRun('UPDATE applicants SET status = $1 WHERE id = $2', [status, req.params.id])
   return res.json(updated)
 })
 
 app.get('/api/dashboard/overview', authRequired, async (_req, res) => {
-  const rows = await db.all('SELECT * FROM applicants')
+  const rows = await dbQuery('SELECT * FROM applicants')
   const applicants = rows.map(parseApplicant)
-  const employees = await db.all('SELECT * FROM employees')
+  const employees = await dbQuery('SELECT * FROM employees')
   const approved = applicants.filter((item) => item.status === 'Aprobado').length
   const pending = applicants.filter((item) => item.status === 'Pendiente').length
   const activeEmployees = employees.filter((item) => item.status === 'Activo').length
