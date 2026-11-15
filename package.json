@@ -9,6 +9,8 @@
     "dev:server": "node server/server.js",
     "start": "node server/server.js",
     "build": "tsc -b && vite build",
+    "build:web": "node scripts/build-web.mjs",
+    "test:hosting": "node --test server/web-hosting.test.js",
     "db:generate": "prisma generate",
     "db:check": "node scripts/check-database.mjs",
     "db:storage": "node scripts/database-storage.mjs",

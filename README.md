@@ -4,6 +4,8 @@ Aplicación web de administración operativa para una empresa de mantenimiento, 
 
 ## Objetivo
 
+Para publicarla y ensayarla desde teléfonos sin mantener encendido el computador, consulta la [guía de publicación en Render](docs/publicacion-render.md). El repositorio incluye un Blueprint para servir web y API bajo una misma dirección HTTPS conectada a Neon.
+
 La versión actual incluye cuatro perfiles (Gerente, Secretaría, Supervisor y Trabajador), órdenes con instrucciones y archivos, jornada del trabajador, reportes con solicitudes de materiales, respuestas con notificaciones e inventario con QR, préstamos, devoluciones y consumo por obra.
 
 La API operativa usa `pg` para Neon PostgreSQL y migraciones en `server/migrations/`. La configuración de Prisma se conserva para tareas existentes; no sustituye las migraciones de seguridad de la API. Consulta [perfiles](docs/perfiles-operativos.md), [panel del trabajador](docs/panel-trabajador.md) e [inventario](docs/inventario.md).

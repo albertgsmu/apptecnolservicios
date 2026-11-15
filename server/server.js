@@ -44,6 +44,7 @@ import { validLocation, workDay } from './worker-photos.js'
 import { saveAssessments } from './location-assessments.js'
 import { createOrderMediaStorage } from './storage/order-media.js'
 import { registerOrderAttachments } from './order-attachments.js'
+import { webAllowedOrigins, registerWebHosting } from './web-hosting.js'
 
 dotenv.config({ path: '.env.local' })
 dotenv.config()
@@ -132,6 +133,7 @@ const dbRun = async (text, params = []) => {
 }
 
 const ensureDatabase = async () => {
+  if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) throw new Error('DATABASE_URL es obligatorio en producción. Configura la conexión de Neon en el hosting.')
   if (process.env.DATABASE_URL) {
     await pool.query('SELECT 1')
     await assertAuthSchema((...args) => pool.query(...args))
@@ -607,15 +609,7 @@ const createApplicantId = async () => {
   return `SOL-${String(next).padStart(4, '0')}`
 }
 
-const normalizeOrigins = (value) => String(value ?? '')
-  .split(',')
-  .map((entry) => entry.trim())
-  .filter(Boolean)
-
-const allowedOrigins = normalizeOrigins(process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:5177')
-if (allowedOrigins.some((origin) => origin.includes('*'))) {
-  throw new Error('ALLOWED_ORIGINS debe contener orígenes exactos; no se permiten comodines.')
-}
+const allowedOrigins = webAllowedOrigins()
 
 const isAllowedOrigin = (origin) => {
   if (!origin) {
@@ -1056,6 +1050,7 @@ app.patch('/api/applicants/:id/status', authRequired, allowRoles(...permissionRo
 registerDashboard(app, { authRequired, allowRoles, asyncRoute, dbGet })
 registerFieldWork(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction, io })
 registerInventory(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction })
+await registerWebHosting(app)
 
 app.use((error, _req, res, next) => {
   if (res.headersSent) {

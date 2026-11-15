@@ -1,23 +1,25 @@
 services:
   - type: web
-    name: jp-mantenimiento-api
-    env: node
+    name: jp-mantenimiento
+    runtime: node
     region: oregon
     plan: free
     branch: main
-    buildCommand: npm install
+    buildCommand: npm ci --include=dev && npm run build:web
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: SERVE_FRONTEND
+        value: "true"
       - key: PORT
         value: 10000
       - key: TRUST_PROXY_HOPS
         value: 1
       - key: MFA_ENCRYPTION_KEY
-        generateValue: true
-      - key: ALLOWED_ORIGINS
         sync: false
       - key: DATABASE_URL
         sync: false
