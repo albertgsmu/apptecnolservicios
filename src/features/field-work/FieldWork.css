@@ -1,0 +1,29 @@
+.field-form { display: grid; gap: 16px; }
+.field-form label, .field-arrival label { display: grid; gap: 8px; font-size: 13px; }
+.field-form :is(input,select,textarea), .field-arrival select { width: 100%; min-width: 0; padding: 12px; border: 1px solid #34485c; border-radius: 9px; color: #e2e8f0; background: #07131f; font: inherit; }
+.field-form textarea { resize: vertical; }
+.field-form button { justify-self: start; }
+.field-two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.field-arrival { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 16px; margin-top: 20px; }
+.field-report-list { display: grid; gap: 18px; }
+.field-report-card { border: 1px solid #34485c; background: #102333; border-radius: 12px; padding: 20px; }
+.field-report-card h4 { margin: 0; font-size: 17px; }
+.field-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.field-manager-reply { border-left: 3px solid #fbbf24; padding: 10px 14px; background: #fbbf2408; margin-bottom: 18px; }
+.field-location-list { list-style: none; padding: 0; display: grid; gap: 18px; }
+.field-location-list li { padding: 18px; border: 1px solid #34485c; border-radius: 10px; }
+.field-location-list p { font-size: 13px; color: #afc3d5; line-height: 1.6; }
+.field-location-list a { color: #9bd3ff; font-size: 13px; }
+@media(max-width:760px) { .field-two-columns, .field-arrival { grid-template-columns: 1fr; } }
+.worker-assignment { border-left: 4px solid #8b78ff; }
+.worker-assignment h2 { margin: 8px 0 16px; }
+.worker-response-alert { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.worker-notifications .field-report-card { margin-top: 12px; }
+@media (max-width: 640px) { .worker-response-alert { align-items: stretch; flex-direction: column; } }
+.material-request-fields { border: 1px solid #9287cc55; border-radius: 12px; padding: 18px; min-width: 0; }
+.material-request-fields legend { font-weight: 650; padding: 0 8px; }
+.material-request-line { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; padding: 16px 0; border-top: 1px solid #9287cc33; }
+.material-request-line > button { grid-column: 1 / -1; justify-self: start; }
+.report-materials { padding: 14px; border-radius: 10px; background: #8c79e514; overflow-wrap: anywhere; }
+.report-materials li { margin-top: 8px; }
+@media (max-width: 640px) { .material-request-line { grid-template-columns: 1fr; } }

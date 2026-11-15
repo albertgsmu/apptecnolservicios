@@ -1,163 +1,38 @@
-type DashboardStat = {
-  label: string
-  value: string
-  delta: string
-  tone: string
-}
-
-type DashboardOrder = {
-  id: string
-  client: string
-  area: string
-  priority: string
-  status: string
-}
-
 import { StatCard } from '../../components/StatCard'
+import type { DashboardOverview, WorkOrder } from '../../types'
+import { formatMediaSize } from '../orders/mediaUtils'
 
-type DashboardSectionProps = {
-  stats: ReadonlyArray<DashboardStat>
-  orders: ReadonlyArray<DashboardOrder>
-  roles: readonly string[]
-}
+type Props = { orders: WorkOrder[]; data: DashboardOverview | null; ordersError: string; onViewOrders?: () => void }
 
-export function DashboardSection({ stats, orders, roles }: DashboardSectionProps) {
-  return (
-    <section className="content-block">
-      <div className="stats-grid">
-        {stats.map((stat) => (
-          <StatCard
-            key={stat.label}
-            label={stat.label}
-            value={stat.value}
-            delta={stat.delta}
-            tone={stat.tone}
-          />
-        ))}
-      </div>
-
-      <div className="analytics-strip">
-        <div className="analytic-card">
-          <span>Rendimiento operativo</span>
-          <strong>94.8%</strong>
-          <div className="progress-line"><span style={{ width: '94.8%' }} /></div>
-        </div>
-        <div className="analytic-card">
-          <span>Eficiencia de recursos</span>
-          <strong>87.3%</strong>
-          <div className="progress-line"><span style={{ width: '87.3%' }} /></div>
-        </div>
-        <div className="analytic-card">
-          <span>Tiempo medio de cierre</span>
-          <strong>2.4 días</strong>
-          <div className="progress-line"><span style={{ width: '76%' }} /></div>
-        </div>
-      </div>
-
-      <div className="content-grid">
-        <div className="panel large-panel">
-          <div className="panel-header">
-            <h2>Órdenes de trabajo</h2>
-            <button type="button" className="text-button">Ver todo</button>
-          </div>
-
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Cliente</th>
-                <th>Área</th>
-                <th>Prioridad</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => (
-                <tr key={order.id}>
-                  <td>{order.id}</td>
-                  <td>{order.client}</td>
-                  <td>{order.area}</td>
-                  <td>
-                    <span className={`priority-badge ${order.priority.toLowerCase()}`}>{order.priority}</span>
-                  </td>
-                  <td>
-                    <span className={`status-badge ${order.status.toLowerCase().replace(/\s+/g, '-')}`}>{order.status}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="panel">
-          <div className="panel-header">
-            <h2>Alertas</h2>
-            <button type="button" className="text-button">Revisar</button>
-          </div>
-
-          <ul className="simple-list">
-            {[
-              'Revisión de SLA por sucursal y cumplimiento mensual.',
-              'Coordinación de mantenimiento crítico en 3 clientes prioritarios.',
-              'Confirmar disponibilidad de personal para turno nocturno.',
-              'Seguimiento a proveedores con cotizaciones vencidas.',
-            ].map((alert) => (
-              <li key={alert}>
-                <div>
-                  <strong>{alert}</strong>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      <div className="bottom-grid">
-        <div className="panel">
-          <div className="panel-header">
-            <h2>Gestión directiva</h2>
-            <button type="button" className="text-button">Organigrama</button>
-          </div>
-
-          <div className="leadership-list">
-            {roles.map((role, index) => (
-              <div key={role} className="leader-item">
-                <div className="avatar">{role.slice(0, 2).toUpperCase()}</div>
-                <div>
-                  <strong>{role}</strong>
-                  <span>{['Luis Ramírez', 'María López', 'Julio Ortega', 'Ana García', 'Carlos Ruiz'][index]}</span>
-                  <small>{['Estrategia', 'Agenda', 'Operación', 'RRHH', 'Finanzas'][index]}</small>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-header">
-            <h2>Asistencia</h2>
-            <button type="button" className="text-button">Semana</button>
-          </div>
-
-          <div className="attendance-chart">
-            {[
-              { day: 'Lun', attendance: 97 },
-              { day: 'Mar', attendance: 94 },
-              { day: 'Mié', attendance: 98 },
-              { day: 'Jue', attendance: 96 },
-              { day: 'Vie', attendance: 95 },
-            ].map((item) => (
-              <div key={item.day} className="attendance-item">
-                <div className="bar-group">
-                  <span className="bar" style={{ height: `${item.attendance}%` }} />
-                </div>
-                <strong>{item.day}</strong>
-                <small>{item.attendance}%</small>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  )
+export function DashboardSection({ orders, data, ordersError, onViewOrders }: Props) {
+  const stats = data ? [
+    { label: 'Órdenes abiertas', value: String(data.orders.open), delta: 'Todas las órdenes que no están cerradas', tone: 'blue' },
+    { label: 'Órdenes cerradas', value: String(data.orders.closed), delta: 'Trabajos cerrados por el Gerente', tone: 'green' },
+    { label: 'Pendientes de revisión', value: String(data.operations.review), delta: 'Órdenes en estado Revisión', tone: 'amber' },
+    { label: 'Sin técnico asignado', value: String(data.operations.unassigned), delta: 'Órdenes abiertas por asignar', tone: 'red' },
+    { label: 'Avance del trabajo abierto', value: data.operations.openAverageProgress === null ? '—' : `${data.operations.openAverageProgress}%`, delta: 'Promedio de avance; excluye órdenes cerradas', tone: 'blue' },
+    { label: 'Candidatos pendientes', value: String(data.applicants.pending), delta: 'Solicitudes pendientes de decisión', tone: 'amber' },
+    ...(data.employees ? [{ label: 'Empleados activos', value: String(data.employees.active), delta: `De ${data.employees.total} fichas de empleados registradas`, tone: 'green' }] : []),
+    { label: 'Fotos y videos guardados', value: String(data.media.files), delta: `${formatMediaSize(data.media.bytes)} de contenido en la base`, tone: 'blue' },
+    ...(data.fieldWork ? [{ label: 'Reportes de obra sin resolver', value: String(data.fieldWork.pending), delta: `${data.fieldWork.critical} críticos. Consulta Reportes de obra para responder.`, tone: 'red' }] : []),
+  ] : []
+  return <section className="content-block">
+    <div className="section-explanation"><h2>Resumen de la empresa</h2><p>Totales de todos los registros actuales, sin filtro de fechas. Se consultan automáticamente cada 30 segundos mientras esta ventana está visible.</p></div>
+    {!data ? <div className="panel"><p>Los indicadores aparecerán cuando se complete la consulta de la base de datos.</p></div> : <>
+      <div className="stats-grid">{stats.map(stat => <StatCard key={stat.label} {...stat} />)}</div>
+      <div className="panel"><h2>Atención pendiente</h2><ul className="manager-alerts">
+        <li><strong>{data.operations.critical}</strong> órdenes críticas abiertas.</li>
+        <li><strong>{data.operations.overdue}</strong> órdenes abiertas con fecha prevista anterior a hoy ({data.today}).</li>
+        <li><strong>{data.operations.unassigned}</strong> órdenes necesitan un técnico.</li>
+        <li><strong>{data.operations.review}</strong> órdenes esperan revisión.</li>
+      </ul><p className="metric-explanation">Una fecha prevista vencida no equivale a una medición de incumplimiento contractual.</p>
+      <p>{data.orders.total ? `${data.orders.closed} de ${data.orders.total} órdenes están cerradas (${Math.round(data.orders.closed / data.orders.total * 100)}%).` : 'Todavía no hay órdenes para calcular un porcentaje de cierre.'} Este porcentaje cuenta órdenes; no mide asistencia ni productividad.</p></div>
+    </>}
+    <div className="panel panel-full"><div className="panel-header"><h2>Seguimiento de órdenes</h2>{onViewOrders && <button className="text-button" onClick={onViewOrders}>Ver todas</button>}</div>
+      {ordersError ? <p role="alert">No se pudo consultar el detalle de las órdenes. Actualiza los datos para reintentar.</p> : !orders.length ? <p>Aún no hay órdenes registradas.</p> : <div className="orders-table-scroll"><table><thead><tr><th>Cliente</th><th>Técnico</th><th>Fecha prevista</th><th>Estado</th><th>Avance</th></tr></thead><tbody>
+        {orders.slice(0, 10).map(order => <tr key={order.id}><td>{order.client}</td><td>{order.assignedName || 'Sin asignar'}</td><td>{order.date || 'Por definir'}</td><td>{order.status}</td><td>{order.progress}%</td></tr>)}
+      </tbody></table></div>}
+      {orders.length > 10 && <p className="metric-explanation">Se muestran las 10 órdenes más recientes. Los indicadores incluyen todas.</p>}
+    </div>
+  </section>
 }

@@ -2,32 +2,39 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = process.cwd()
-const envPath = path.join(root, '.env')
-const env = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : ''
-const parsed = Object.fromEntries(
-  env
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .filter((line) => !line.trim().startsWith('#'))
-    .map((line) => {
-      const idx = line.indexOf('=')
-      if (idx === -1) {
-        return null
-      }
+const readEnv = (filename) => {
+  const envPath = path.join(root, filename)
+  const env = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : ''
+  return Object.fromEntries(
+    env
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .filter((line) => !line.trim().startsWith('#'))
+      .map((line) => {
+        const idx = line.indexOf('=')
+        if (idx === -1) {
+          return null
+        }
 
-      const key = line.slice(0, idx).trim()
-      const value = line.slice(idx + 1).trim().replace(/^['"]|['"]$/g, '')
-      return [key, value]
-    })
-    .filter(Boolean),
-)
+        const key = line.slice(0, idx).trim()
+        const value = line.slice(idx + 1).trim().replace(/^['"]|['"]$/g, '')
+        return [key, value]
+      })
+      .filter(Boolean),
+  )
+}
+const parsed = { ...readEnv('.env'), ...readEnv('.env.local') }
 
 const required = {
-  server: ['DATABASE_URL', 'JWT_SECRET'],
+  server: ['DATABASE_URL', 'MFA_ENCRYPTION_KEY'],
   frontend: ['VITE_API_URL'],
 }
 
 const warnings = []
+const mfaKey = process.env.MFA_ENCRYPTION_KEY ?? parsed.MFA_ENCRYPTION_KEY
+if (mfaKey && Buffer.from(mfaKey, 'base64').length !== 32) {
+  warnings.push('server: MFA_ENCRYPTION_KEY must decode to exactly 32 bytes')
+}
 
 for (const [section, keys] of Object.entries(required)) {
   for (const key of keys) {

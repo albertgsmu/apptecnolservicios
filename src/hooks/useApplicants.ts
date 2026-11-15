@@ -2,16 +2,20 @@ import { useEffect, useState } from 'react'
 import {
   createApplicant,
   fetchApplicants,
-  saveApplicants,
   updateApplicantStatus,
 } from '../lib/dataService'
 import type { Applicant, ApplicantStatus } from '../types'
 
-export function useApplicants() {
+export function useApplicants(isEnabled: boolean) {
   const [applicants, setApplicants] = useState<Applicant[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!isEnabled) {
+      return
+    }
+
     let isMounted = true
 
     const loadApplicants = async () => {
@@ -19,6 +23,11 @@ export function useApplicants() {
         const nextApplicants = await fetchApplicants()
         if (isMounted) {
           setApplicants(nextApplicants)
+          setLoadError(null)
+        }
+      } catch (error) {
+        if (isMounted) {
+          setLoadError(error instanceof Error ? error.message : 'No se pudieron cargar las solicitudes.')
         }
       } finally {
         if (isMounted) {
@@ -28,16 +37,15 @@ export function useApplicants() {
     }
 
     loadApplicants()
+    const refresh = () => { if (isMounted && document.visibilityState === 'visible') void loadApplicants() }
+    const interval = window.setInterval(refresh, 30000)
+    window.addEventListener('focus', refresh)
     return () => {
       isMounted = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
     }
-  }, [])
-
-  useEffect(() => {
-    if (applicants.length > 0 || !isLoadingData) {
-      saveApplicants(applicants)
-    }
-  }, [applicants, isLoadingData])
+  }, [isEnabled])
 
   const addApplicant = async (payload: Omit<Applicant, 'id' | 'status' | 'createdAt'>) => {
     const createdApplicant = await createApplicant(payload)
@@ -54,6 +62,7 @@ export function useApplicants() {
   return {
     applicants,
     isLoadingData,
+    loadError,
     addApplicant,
     decideApplicant,
     setApplicants,

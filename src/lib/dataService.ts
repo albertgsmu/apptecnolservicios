@@ -1,217 +1,195 @@
 import type { Applicant, ApplicantStatus, SessionUser } from '../types'
+import { activeRoleNames } from '../../shared/access-policy.js'
+import { readLocation } from '../features/field-work/location'
 
-export const APPLICANTS_KEY = 'jp_applicants'
-export const SESSION_KEY = 'jp_session'
-
-const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+let sessionUser: SessionUser | null = null
+
+try { localStorage.removeItem('jp_session') } catch { /* Storage may be disabled by the browser. */ }
+
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+export const getApiBaseUrl = () => API_BASE_URL
 
 const resolveApiUrl = (path: string) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-
-  if (API_BASE_URL) {
-    return `${API_BASE_URL}/api${normalizedPath}`
-  }
-
-  return `/api${normalizedPath}`
+  return API_BASE_URL ? `${API_BASE_URL}/api${normalizedPath}` : `/api${normalizedPath}`
 }
 
-const seedApplicants: Applicant[] = [
-  {
-    id: 'SOL-1001',
-    fullName: 'María José Vázquez',
-    email: 'maria.vazquez@email.com',
-    phone: '5512345678',
-    birthDate: '1994-07-12',
-    gender: 'Femenino',
-    address: 'Calle 5, Colonia Roma',
-    city: 'Ciudad de México',
-    identityNumber: 'VAMJ940712MDF',
-    education: 'Licenciatura',
-    area: 'Electricidad',
-    experience: '2 años',
-    skills: ['Mantenimiento eléctrico', 'Diagnóstico', 'Trabajo en equipo'],
-    availability: 'Full time',
-    emergencyContact: 'José Vázquez',
-    emergencyPhone: '5578901234',
-    documents: ['INE', 'CURP', 'Comprobante de domicilio'],
-    status: 'Pendiente',
-    createdAt: '2026-10-15T09:00:00.000Z',
-  },
-  {
-    id: 'SOL-1002',
-    fullName: 'Eduardo Duran',
-    email: 'eduardo.duran@email.com',
-    phone: '5523456789',
-    birthDate: '1989-03-21',
-    gender: 'Masculino',
-    address: 'Avenida de la Reforma 87',
-    city: 'Guadalajara',
-    identityNumber: 'DURE890321JDF',
-    education: 'Técnico superior',
-    area: 'Plomería',
-    experience: '4 años',
-    skills: ['Plomería', 'HVAC', 'Atención a clientes'],
-    availability: 'Turno nocturno',
-    emergencyContact: 'Diana Duran',
-    emergencyPhone: '5543210987',
-    documents: ['INE', 'CURP'],
-    status: 'Aprobado',
-    createdAt: '2026-10-18T10:00:00.000Z',
-  },
-]
-
-const getSessionToken = () => {
-  try {
-    const saved = localStorage.getItem(SESSION_KEY)
-    if (!saved) {
-      return null
-    }
-
-    const parsed = JSON.parse(saved) as SessionUser
-    return parsed?.token ?? null
-  } catch {
+const readCsrfCookie = () => {
+  if (typeof document === 'undefined') {
     return null
   }
+  const prefix = 'jp_csrf='
+  const entry = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix))
+  return entry ? entry.slice(prefix.length) : null
 }
 
-async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getSessionToken()
-  const response = await fetch(resolveApiUrl(path), {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-    ...options,
-  })
+export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method ?? 'GET').toUpperCase()
+  const headers = new Headers(options.headers)
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method) && path !== '/auth/login') {
+    const csrfToken = readCsrfCookie() || (await apiRequest<{ csrfToken: string }>('/auth/csrf')).csrfToken
+    if (csrfToken) {
+      headers.set('X-CSRF-Token', csrfToken)
+    }
+  }
+
+  let response: Response
+  try {
+    response = await fetch(resolveApiUrl(path), {
+      ...options,
+      method,
+      headers,
+      credentials: 'include',
+      signal: options.signal ?? AbortSignal.timeout(15000),
+    })
+  } catch {
+    throw new ApiError('No se pudo conectar con la API. Comprueba que el servidor esté iniciado y que la base de datos esté disponible.', 0)
+  }
 
   if (!response.ok) {
     const content = await response.text()
-    throw new Error(content || 'Request failed')
+    let message = `La API respondió con un error (${response.status}).`
+    try {
+      const parsed = JSON.parse(content) as { message?: string }
+      message = parsed.message ?? message
+    } catch {
+      // Never show an HTML error page as a login message.
+    }
+    throw new ApiError(message, response.status)
   }
 
   const text = await response.text()
-  return text ? (JSON.parse(text) as T) : (undefined as T)
-}
-
-export function getApplicants(): Applicant[] {
-  try {
-    const stored = localStorage.getItem(APPLICANTS_KEY)
-    if (!stored) {
-      localStorage.setItem(APPLICANTS_KEY, JSON.stringify(seedApplicants))
-      return seedApplicants
-    }
-
-    const parsed = JSON.parse(stored)
-    return Array.isArray(parsed) ? parsed : seedApplicants
-  } catch {
-    return seedApplicants
-  }
+  if (!text) return undefined as T
+  try { return JSON.parse(text) as T }
+  catch { throw new ApiError('La dirección de la API devolvió una página en lugar de datos. Revisa VITE_API_URL y el proxy de desarrollo.', response.status) }
 }
 
 export async function fetchApplicants(): Promise<Applicant[]> {
-  try {
-    return await apiRequest<Applicant[]>('/applicants')
-  } catch {
-    await wait(250)
-    return getApplicants()
-  }
-}
-
-export function saveApplicants(applicants: Applicant[]) {
-  localStorage.setItem(APPLICANTS_KEY, JSON.stringify(applicants))
+  return apiRequest<Applicant[]>('/applicants')
 }
 
 export async function createApplicant(input: Omit<Applicant, 'id' | 'status' | 'createdAt'>): Promise<Applicant> {
-  try {
-    return await apiRequest<Applicant>('/applicants', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
-  } catch {
-    await wait(300)
-    const applicants = getApplicants()
-    const newApplicant: Applicant = {
-      id: `SOL-${String(applicants.length + 101).padStart(4, '0')}`,
-      status: 'Pendiente',
-      createdAt: new Date().toISOString(),
-      ...input,
-    }
-
-    const nextApplicants = [newApplicant, ...applicants]
-    saveApplicants(nextApplicants)
-    return newApplicant
-  }
+  return apiRequest<Applicant>('/applicants', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 export async function updateApplicantStatus(id: string, status: ApplicantStatus): Promise<Applicant> {
-  try {
-    return await apiRequest<Applicant>(`/applicants/${id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    })
-  } catch {
-    await wait(200)
-    const applicants = getApplicants()
-    const nextApplicants = applicants.map((entry) => (entry.id === id ? { ...entry, status } : entry))
-    saveApplicants(nextApplicants)
-
-    const updated = nextApplicants.find((entry) => entry.id === id)
-    if (!updated) {
-      throw new Error(`Applicant ${id} not found`)
-    }
-
-    return updated
-  }
+  return apiRequest<Applicant>(`/applicants/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
 }
 
-export async function loginUser(payload: { email: string; password: string; role: string }) {
-  const response = await apiRequest<{ user: SessionUser; token: string }>('/auth/login', {
+export async function createUser(payload: { name: string; email: string; password: string; role: string; employeeId?: string; employeeDetails?: { area: string; title: string; shift: string } }) {
+  const response = await apiRequest<{ user: { id: string; name: string; email: string; role: string } }>('/users', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+  return response.user
+}
 
-  const sessionUser = { ...response.user, token: response.token }
-  saveSessionUser(sessionUser)
-  return sessionUser
+export async function loginUser(payload: { email: string; password: string }) {
+  const response = await apiRequest<{
+    user: SessionUser
+    nextStep: 'authenticated' | 'change-password' | 'enroll-mfa' | 'verify-mfa' | 'location-required'
+    locationNoticeRequired?: boolean
+  }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (!response || !['authenticated', 'change-password', 'enroll-mfa', 'verify-mfa', 'location-required'].includes(response.nextStep) ||
+      !response.user || typeof response.user.email !== 'string' || typeof response.user.name !== 'string' ||
+      !activeRoleNames.includes(response.user.role)) {
+    throw new ApiError('La API activa está desactualizada o devolvió un acceso incompatible. Reinicia el servidor del proyecto y vuelve a ingresar.', 502)
+  }
+  if (response.nextStep === 'location-required' && response.locationNoticeRequired === false) {
+    const location = await readLocation()
+    if (location.status !== 'captured') throw new ApiError('No se obtuvo ubicación para entrar. Revisa el permiso del navegador y el GPS, y vuelve a iniciar sesión.', 400)
+    const completed = await apiRequest<{ user: SessionUser }>('/auth/worker-location', { method: 'POST', body: JSON.stringify({ location }) })
+    saveSessionUser(completed.user)
+    return { user: completed.user, nextStep: 'authenticated' as const }
+  }
+  if (response.nextStep === 'authenticated') {
+    saveSessionUser(response.user)
+  }
+  return response
+}
+
+export async function changeManagerPassword(payload: { password: string; confirmPassword: string }) {
+  return apiRequest<{ nextStep: string; user?: SessionUser }>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getMfaSetup() {
+  return apiRequest<{ qrCodeDataUrl: string; manualEntryKey: string }>('/auth/mfa/setup', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export async function enableMfa(code: string) {
+  return apiRequest<{ user: SessionUser; recoveryCodes: string[] }>('/auth/mfa/enable', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  })
+}
+
+export async function verifyMfaLogin(payload: { code?: string; recoveryCode?: string }) {
+  const response = await apiRequest<{ user: SessionUser; nextStep: 'authenticated' }>('/auth/mfa/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  saveSessionUser(response.user)
+  return response
+}
+
+export async function logoutUser() {
+  try {
+    await apiRequest<void>('/auth/logout', { method: 'POST' })
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) {
+      throw error
+    }
+  } finally {
+    saveSessionUser(null)
+  }
 }
 
 export async function getSessionInfo(): Promise<SessionUser | null> {
   try {
     const response = await apiRequest<{ user: SessionUser }>('/auth/me')
-    if (!response?.user) {
+    saveSessionUser(response.user)
+    return response.user
+  } catch (error) {
+    if (error instanceof ApiError && [401, 403].includes(error.status)) {
+      saveSessionUser(null)
       return null
     }
-
-    const user = { ...response.user, token: getSessionToken() ?? undefined }
-    saveSessionUser(user)
-    return user
-  } catch {
-    return getSessionUser()
+    throw error
   }
 }
 
 export function getSessionUser(): SessionUser | null {
-  try {
-    const savedSession = localStorage.getItem(SESSION_KEY)
-    if (!savedSession) {
-      return null
-    }
-
-    const parsed = JSON.parse(savedSession) as SessionUser
-    return parsed && typeof parsed.email === 'string' ? parsed : null
-  } catch {
-    localStorage.removeItem(SESSION_KEY)
-    return null
-  }
+  return sessionUser
 }
 
-export function saveSessionUser(sessionUser: SessionUser | null) {
-  if (sessionUser) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser))
-    return
-  }
-
-  localStorage.removeItem(SESSION_KEY)
+export function saveSessionUser(nextSessionUser: SessionUser | null) {
+  sessionUser = nextSessionUser
 }

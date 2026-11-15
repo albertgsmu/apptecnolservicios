@@ -26,3 +26,7 @@ dist-ssr
 *.sln
 *.sw?
 .neon
+.local-secrets/
+server/data/uploads/
+server/data/*
+!server/data/.gitkeep

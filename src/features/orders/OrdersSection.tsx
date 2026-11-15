@@ -1,53 +1,56 @@
-type Order = {
-  id: string
-  client: string
-  area: string
-  priority: string
-  status: string
-  progress: number
+import { useState } from 'react'
+import type { WorkOrder } from '../../types'
+import { OrderAttachments } from './OrderAttachments'
+import { OrderSiteInfo } from './OrderSiteInfo'
+import { OrderArrivalSettings } from './OrderArrivalSettings'
+import { OrderEvidenceEditor } from './OrderEvidenceEditor'
+
+type Props = {
+  orders: WorkOrder[]; assignees: { id: string; name: string }[]; canWrite: boolean
+  canCreate: boolean; canAssign: boolean; canClose: boolean
+  onLocationSaved: () => void
+  onCreate: () => void
+  onUpdate: (id: string, payload: { assignedTo: string; progress: number; status: string; version: number }) => Promise<void>
 }
-
-type OrdersSectionProps = {
-  orders: Order[]
+function OrderCard({ order, assignees, canWrite, canAssign, canClose, onUpdate, onLocationSaved }: Omit<Props, 'orders' | 'onCreate'> & { order: WorkOrder }) {
+  const [draft, setDraft] = useState({ assignedTo: order.assignedTo, progress: order.progress, status: order.status })
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState('')
+  return <article className="order-card">
+    <div className="order-head"><div><span className="order-id" title={order.id}>{order.id.slice(0, 11)}</span><h3>{order.client}</h3></div><span className={`priority-badge ${order.priority.toLowerCase()}`}>{order.priority}</span></div>
+    <p>{order.area} · {order.date || 'Sin fecha prevista'}</p><p>{order.assignedName || 'Sin técnico asignado'}</p>
+    {order.observations && <p>{order.observations}</p>}
+    <OrderSiteInfo site={order.site} />
+    {canClose && order.status !== 'Cerrada' && <OrderArrivalSettings order={order} onSaved={onLocationSaved} />}
+    <OrderAttachments attachments={order.attachments} />
+    {canAssign && order.status !== 'Cerrada' && <OrderEvidenceEditor order={order} onSaved={onLocationSaved} />}
+    <div className="progress-line"><span style={{ width: `${order.progress}%` }} /></div>
+    <div className="order-footer"><span>{order.status}</span><strong>{order.progress}%</strong></div>
+    {canWrite && order.status !== 'Cerrada' && <form className="order-editor" onSubmit={async event => {
+      event.preventDefault(); setSaving(true); setNotice('')
+      try { await onUpdate(order.id, { ...draft, version: order.version }); setNotice('Cambios guardados.') }
+      catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo guardar.') }
+      finally { setSaving(false) }
+    }}>
+      {canAssign && <label>Técnico<select value={draft.assignedTo} onChange={event => setDraft(current => ({ ...current, assignedTo: event.target.value, status: event.target.value ? (current.status === 'Programada' ? 'Asignada' : current.status) : 'Programada' }))}>
+        <option value="">Sin asignar</option>
+        {order.assignedTo && !assignees.some(item => item.id === order.assignedTo) && <option value={order.assignedTo}>{order.assignedName} (no disponible)</option>}
+        {assignees.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select></label>}
+      <label>Estado<select value={draft.status} onChange={event => setDraft(current => ({ ...current, status: event.target.value, progress: event.target.value === 'Cerrada' ? 100 : current.progress }))}>
+        {(canClose ? ['Programada', 'Asignada', 'En ejecución', 'Revisión', 'Cerrada'] : canAssign ? ['Programada', 'Asignada', 'En ejecución', 'Revisión'] : [order.status, 'En ejecución', 'Revisión'].filter((item, index, items) => items.indexOf(item) === index)).map(status => <option key={status}>{status}</option>)}
+      </select></label>
+      <label>Avance (%)<input type="number" min={order.progress} max={canClose ? 100 : 99} required value={draft.progress} onChange={event => setDraft(current => ({ ...current, progress: Number(event.target.value), status: !canAssign && current.status === 'Asignada' ? 'En ejecución' : current.status }))} /></label>
+      <button className="primary-button" disabled={saving}>{saving ? 'Guardando…' : draft.status === 'Cerrada' ? 'Cerrar orden' : 'Guardar cambios'}</button>
+    </form>}
+    {order.status === 'Cerrada' && <p>Trabajo cerrado. Disponible para consulta.</p>}
+    {notice && <p role="status">{notice}</p>}
+  </article>
 }
-
-export function OrdersSection({ orders }: OrdersSectionProps) {
-  return (
-    <section className="content-block">
-      <div className="panel panel-full">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">Operación</p>
-            <h2>Órdenes de trabajo y seguimiento</h2>
-          </div>
-          <button type="button" className="primary-button">Nueva OT</button>
-        </div>
-
-        <div className="order-grid">
-          {orders.map((order) => (
-            <article key={order.id} className="order-card">
-              <div className="order-head">
-                <div>
-                  <span className="order-id">{order.id}</span>
-                  <h3>{order.client}</h3>
-                </div>
-                <span className={`priority-badge ${order.priority.toLowerCase()}`}>{order.priority}</span>
-              </div>
-
-              <p>{order.area}</p>
-
-              <div className="progress-line">
-                <span style={{ width: `${order.progress}%` }} />
-              </div>
-
-              <div className="order-footer">
-                <span>{order.status}</span>
-                <strong>{order.progress}%</strong>
-              </div>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
+export function OrdersSection({ orders, onCreate, ...props }: Props) {
+  return <section className="content-block"><div className="panel panel-full">
+    <div className="panel-header"><div><p className="eyebrow">Operación</p><h2>Órdenes de trabajo y seguimiento</h2></div>{props.canCreate && <button className="primary-button" onClick={onCreate}>Nueva OT</button>}</div>
+    {!orders.length && <p>No hay órdenes registradas. Crea la primera para comenzar.</p>}
+    <div className="order-grid">{orders.map(order => <OrderCard key={`${order.id}-${order.version}`} order={order} {...props} />)}</div>
+  </div></section>
 }

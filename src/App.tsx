@@ -1,154 +1,111 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import { InventorySection } from './features/inventory/InventorySection'
 import { ApplicantsPanel } from './components/ApplicantsPanel'
 import { BrandMark } from './components/BrandMark'
 import { LoginScreen } from './components/LoginScreen'
 import { WorkersSection } from './components/WorkersSection'
-import {
-  agenda,
-  attendance,
-  contracts,
-  defaultRegisterForm,
-  menuItems,
-  providers,
-  reports,
-  roleOptions,
-  summaryStats,
-  vacationRequests,
-  workOrders,
-} from './data/mockData'
+import { menuItems } from './constants/navigation'
+import { useOverview } from './hooks/useOverview'
+import { DataStatus } from './components/DataStatus'
+import { useFieldWork } from './hooks/useFieldWork'
+import { FieldWorkPanel } from './features/field-work/FieldWorkPanel'
 import { DashboardSection } from './features/dashboard/DashboardSection'
 import { ContractsSection } from './features/contracts/ContractsSection'
 import { OrdersSection } from './features/orders/OrdersSection'
+import { CreateOrderDialog, type OrderDraft } from './features/orders/CreateOrderDialog'
 import { PersonalSection } from './features/personal/PersonalSection'
 import { ReportsSection } from './features/reports/ReportsSection'
 import { SecretarySection } from './features/secretary/SecretarySection'
+import { roleViews } from './constants/roles'
 import { useApplicants } from './hooks/useApplicants'
+import { useOrders } from './hooks/useOrders'
 import { useAuth } from './hooks/useAuth'
 import { useEmployees } from './hooks/useEmployees'
-import type { ApplicantStatus, EmployeeStatus, RegisterForm, Role, View } from './types'
-import { isValidEmail, isValidPassword } from './utils/validation'
+import { CreateUserDialog } from './components/CreateUserDialog'
+import { can } from '../shared/access-policy.js'
+import type { ApplicantStatus, EmployeeStatus, View } from './types'
+
+
+
+
 
 function App() {
-  const [activeRole, setActiveRole] = useState<Role>('Gerente')
   const [selectedView, setSelectedView] = useState<View>('dashboard')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'Todos' | EmployeeStatus>('Todos')
-  const [loginEmail, setLoginEmail] = useState('gerente@jpmantenimiento.com')
-  const [loginPassword, setLoginPassword] = useState('JPsecure123')
-  const [registerOpen, setRegisterOpen] = useState(false)
+  const [createUserOpen, setCreateUserOpen] = useState(false)
+  const closeCreateUser = useCallback(() => setCreateUserOpen(false), [])
+  const [newOrderOpen, setNewOrderOpen] = useState(false)
+  const closeNewOrder = useCallback(() => setNewOrderOpen(false), [])
   const [searchApplicant, setSearchApplicant] = useState('')
   const [applicantFilter, setApplicantFilter] = useState<'Todos' | ApplicantStatus>('Todos')
-  const [registerForm, setRegisterForm] = useState<RegisterForm>(defaultRegisterForm)
-  const [registerNotice, setRegisterNotice] = useState('')
 
-  const { isLoggedIn, login, logout, sessionUser, restoreSession } = useAuth()
-  const { applicants, isLoadingData, addApplicant, decideApplicant } = useApplicants()
-  const { employees, updateEmployeeStatus } = useEmployees()
+  const { isLoggedIn, login, logout, completeLogin, sessionUser, restoreSession, isRestoringSession, sessionError } = useAuth()
+  const canWriteOrders = can(sessionUser?.role, 'createOrders')
+  const canManageOrders = can(sessionUser?.role, 'manageOrders')
+  const canUpdateOrders = can(sessionUser?.role, 'updateOrders')
+  const { orders, assignees, error: ordersError, loading: ordersLoading, reload: reloadOrders, create: createOrder, update: updateOrder } = useOrders(isLoggedIn, canManageOrders)
+  const { applicants, isLoadingData, loadError, decideApplicant } = useApplicants(isLoggedIn && can(sessionUser?.role, 'readApplicants'))
+  const canReadEmployees = can(sessionUser?.role, 'readEmployees')
+  const { employees, updateEmployeeStatus, loading: employeeLoading, error: employeeError, reload: reloadEmployees } = useEmployees(isLoggedIn && canReadEmployees)
+  const { data: overview, loading: overviewLoading, error: overviewError, reload: reloadOverview } = useOverview(isLoggedIn && sessionUser?.role !== 'Trabajador' ? sessionUser?.email ?? null : null)
+  const refreshCompanyData = () => { void reloadOverview(); void reloadOrders(); if (canReadEmployees) reloadEmployees() }
+  const fieldWork = useFieldWork(isLoggedIn && sessionUser && ['Gerente', 'Secretaria', 'Supervisor', 'Trabajador'].includes(sessionUser.role) ? sessionUser.email : null)
+  const reloadFieldWork = fieldWork.reload
+  const refreshFieldWork = useCallback(() => { void reloadFieldWork(); void reloadOverview() }, [reloadFieldWork, reloadOverview])
 
   useEffect(() => {
     void restoreSession()
   }, [restoreSession])
 
-  const handleLogin = async () => {
-    const email = loginEmail.trim().toLowerCase()
-    const password = loginPassword.trim()
-
-    if (!email || !password) {
-      alert('Completa tu correo y contraseña para continuar.')
-      return
+  const handleLogin = async (credentials: { email: string; password: string }) => {
+    const result = await login(credentials)
+    if (result.nextStep === 'authenticated') {
+      setSelectedView(result.user.role === 'Trabajador' ? 'my-work' : 'dashboard')
     }
-
-    if (!isValidEmail(email)) {
-      alert('Ingresa un correo electrónico válido.')
-      return
-    }
-
-    if (!isValidPassword(password)) {
-      alert('La contraseña debe tener al menos 8 caracteres.')
-      return
-    }
-
-    try {
-      await login({
-        email,
-        password,
-        role: activeRole,
-      })
-      setSelectedView('dashboard')
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'No fue posible iniciar sesión.')
-    }
+    return result
   }
 
-  const handleRegisterChange = (field: keyof RegisterForm, value: string) => {
-    setRegisterForm((current) => ({ ...current, [field]: value }))
-  }
-
-  const handleRegisterSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
-    const { fullName, email, phone, birthDate, address, city, identityNumber, emergencyContact, emergencyPhone, password } = registerForm
-
-    if (!fullName || !email || !phone || !birthDate || !address || !city || !identityNumber || !emergencyContact || !emergencyPhone || !password) {
-      setRegisterNotice('Completa todos los campos obligatorios para continuar.')
-      return
-    }
-
-    if (!isValidEmail(email)) {
-      setRegisterNotice('El correo electrónico no tiene un formato válido.')
-      return
-    }
-
-    if (!isValidPassword(password)) {
-      setRegisterNotice('La contraseña debe tener al menos 8 caracteres.')
-      return
-    }
-
-    await addApplicant({
-      fullName,
-      email,
-      phone,
-      birthDate,
-      gender: registerForm.gender,
-      address,
-      city,
-      identityNumber,
-      education: registerForm.education,
-      area: registerForm.area,
-      experience: registerForm.experience,
-      skills: registerForm.skills
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-      availability: registerForm.availability,
-      emergencyContact,
-      emergencyPhone,
-      documents: registerForm.documents
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-    })
-    setRegisterForm(defaultRegisterForm)
-    setRegisterNotice('Registro enviado correctamente. Tu solicitud quedó en revisión.')
-    setRegisterOpen(false)
-    setSelectedView('personal')
+  const handleAuthenticationComplete = (user: NonNullable<typeof sessionUser>) => {
+    completeLogin(user)
+    setSelectedView(user.role === 'Trabajador' ? 'my-work' : 'dashboard')
   }
 
   const handleApplicantDecision = async (id: string, status: ApplicantStatus) => {
     await decideApplicant(id, status)
+    void reloadOverview()
+  }
+
+  const handleOpenNewOrder = () => {
+    setNewOrderOpen(true)
+  }
+
+  const handleCreateOrder = async (draft: OrderDraft) => {
+    await createOrder(draft)
+    void reloadOverview()
+    setNewOrderOpen(false)
+    setSelectedView('orders')
   }
 
   const handleEmployeeStatusChange = async (id: string, status: EmployeeStatus) => {
     try {
       await updateEmployeeStatus(id, status)
+      void reloadOverview()
     } catch (error) {
       alert(error instanceof Error ? error.message : 'No se pudo actualizar el estado del empleado.')
     }
   }
 
+  const allowedViews = sessionUser ? roleViews[sessionUser.role] ?? [] : []
+  const activeView = allowedViews.includes(selectedView) ? selectedView : allowedViews[0]
   const renderContent = () => {
-    switch (selectedView) {
+    switch (activeView) {
+      case 'inventory':
+        return <InventorySection key={sessionUser?.email} manager={sessionUser?.role === 'Gerente'} writable={can(sessionUser?.role, 'manageInventory')} />
+      case 'my-work':
+      case 'field-reports':
+        return <><DataStatus loading={fieldWork.loading} error={fieldWork.error} generatedAt={fieldWork.data?.generatedAt} onRefresh={refreshFieldWork} label="Reportes de obra" actionLabel="Actualizar reportes" /><FieldWorkPanel key={sessionUser?.email} manager={sessionUser?.role !== 'Trabajador'} showLocations={sessionUser?.role === 'Gerente' || sessionUser?.role === 'Trabajador'} orders={orders} data={fieldWork.data} reload={refreshFieldWork} /></>
       case 'workers':
         return (
           <WorkersSection
@@ -157,71 +114,69 @@ function App() {
             onSearchChange={setSearchTerm}
             onStatusChange={(value) => setStatusFilter(value)}
             onUpdateStatus={handleEmployeeStatusChange}
+            canManageEmployees={can(sessionUser?.role, 'manageEmployees')}
             employees={employees}
+            orders={orders}
+            ordersError={ordersError}
+            employeeLoading={employeeLoading}
+            employeeError={employeeError}
           />
         )
 
       case 'personal':
         return (
           <PersonalSection
-            attendance={attendance}
-            vacations={vacationRequests}
+            data={overview}
             applicants={(
               <ApplicantsPanel
                 applicants={applicants}
                 searchApplicant={searchApplicant}
                 applicantFilter={applicantFilter}
                 isLoadingData={isLoadingData}
+                loadError={loadError}
                 onSearchChange={setSearchApplicant}
                 onFilterChange={(value) => setApplicantFilter(value)}
                 onApplicantDecision={handleApplicantDecision}
-                onRegisterOpen={() => setRegisterOpen(true)}
+                canDecide={can(sessionUser?.role, 'decideApplicants')}
               />
             )}
           />
         )
 
       case 'orders':
-        return <OrdersSection orders={workOrders} />
+        return <OrdersSection canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
 
       case 'contracts':
-        return <ContractsSection contracts={contracts} providers={providers} />
+        return <ContractsSection />
 
       case 'secretary':
-        return <SecretarySection agenda={agenda} />
+        return <SecretarySection orders={orders} error={ordersError} onViewOrders={() => setSelectedView('orders')} />
 
       case 'reports':
-        return <ReportsSection reports={reports} />
+        return <ReportsSection data={overview} />
 
       default:
         return (
-          <DashboardSection
-            stats={summaryStats}
-            orders={workOrders}
-            roles={roleOptions}
-          />
+          <DashboardSection orders={orders} data={overview} ordersError={ordersError} onViewOrders={canWriteOrders ? () => setSelectedView('orders') : undefined} />
         )
     }
+  }
+
+  const visibleMenuItems = sessionUser ? menuItems.filter((item) => (roleViews[sessionUser.role] ?? []).includes(item.key)) : []
+
+  if (isRestoringSession) {
+    return <main className="startup-status" role="status"><h1>JP Mantenimiento Integral</h1><p>Comprobando tu sesión…</p></main>
+  }
+
+  if (sessionError && !isLoggedIn) {
+    return <main className="startup-status"><h1>No se pudo cargar el panel</h1><p role="alert">{sessionError}</p><button className="primary-button" onClick={() => void restoreSession()}>Reintentar conexión</button></main>
   }
 
   if (!isLoggedIn) {
     return (
       <LoginScreen
-        activeRole={activeRole}
-        onChangeRole={(role) => setActiveRole(role)}
-        loginEmail={loginEmail}
-        onChangeLoginEmail={setLoginEmail}
-        loginPassword={loginPassword}
-        onChangeLoginPassword={setLoginPassword}
         onLogin={handleLogin}
-        onOpenRegister={() => setRegisterOpen(true)}
-        registerOpen={registerOpen}
-        onCloseRegister={() => setRegisterOpen(false)}
-        registerForm={registerForm}
-        onRegisterChange={handleRegisterChange}
-        onRegisterSubmit={handleRegisterSubmit}
-        registerNotice={registerNotice}
-        roleOptions={roleOptions}
+        onAuthenticated={handleAuthenticationComplete}
       />
     )
   }
@@ -236,11 +191,11 @@ function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Menú administrativo">
-          {menuItems.map((item) => (
+          {visibleMenuItems.map((item) => (
             <button
               key={item.key}
               type="button"
-              className={selectedView === item.key ? 'nav-item active' : 'nav-item'}
+              className={activeView === item.key ? 'nav-item active' : 'nav-item'}
               onClick={() => setSelectedView(item.key)}
             >
               {item.label}
@@ -250,15 +205,21 @@ function App() {
 
         <div className="sidebar-card">
           <p className="mini-label">Estado operativo</p>
-          <h3>Operación estable</h3>
-          <ul>
-            <li>94.3% de disponibilidad</li>
-            <li>35 equipos activos</li>
-            <li>2 incidencias críticas</li>
-          </ul>
+          <h3>Seguimiento de órdenes</h3>
+          {sessionUser?.role === 'Trabajador' ? (ordersError ? <p>No se pudo consultar el resumen.</p> : <ul><li>{orders.filter(order => order.status !== 'Cerrada').length} de mis órdenes abiertas</li><li>{orders.filter(order => order.status === 'Cerrada').length} de mis órdenes cerradas</li></ul>) : overview ? <ul><li>{overview.orders.open} órdenes abiertas</li><li>{overview.orders.closed} órdenes cerradas</li><li>{overview.operations.review} pendientes de revisión</li></ul> : <p>Resumen pendiente de consulta.</p>}
         </div>
 
-        <button type="button" className="logout-button" onClick={() => logout()}>
+        <button
+          type="button"
+          className="logout-button"
+          onClick={async () => {
+            try {
+              await logout()
+            } catch (error) {
+              console.error('No se pudo cerrar la sesión en el servidor.', error)
+            }
+          }}
+        >
           Cerrar sesión
         </button>
       </aside>
@@ -267,19 +228,41 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Sistema administrativo</p>
-            <h1>Panel corporativo de operación</h1>
+            <h1>{sessionUser?.role === 'Trabajador' ? 'Mi espacio de trabajo' : 'Panel corporativo de operación'}</h1>
           </div>
 
           <div className="topbar-actions">
             <div className="user-badge">
               <span>Rol</span>
-              <strong>{sessionUser?.role ?? activeRole}</strong>
+              <strong>{sessionUser?.role}</strong>
             </div>
-            <button type="button" className="ghost-button">Generar reporte</button>
-            <button type="button" className="primary-button">Nueva orden</button>
+            {sessionUser?.role === 'Gerente' && (
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  setCreateUserOpen(true)
+                }}
+              >
+                Crear usuario
+              </button>
+            )}
+            {allowedViews.includes('reports') && <button type="button" className="ghost-button" onClick={() => setSelectedView('reports')}>Ver reportes</button>}
+            {canWriteOrders && <button type="button" className="primary-button" onClick={handleOpenNewOrder}>Nueva orden</button>}
           </div>
         </header>
 
+        {createUserOpen && sessionUser?.role === 'Gerente' && <CreateUserDialog onClose={closeCreateUser} onCreated={refreshCompanyData} />}
+
+        {newOrderOpen && canWriteOrders && (
+          <CreateOrderDialog assignees={assignees} canAssign={canManageOrders} onClose={closeNewOrder} onCreate={handleCreateOrder} />
+        )}
+
+        {sessionUser?.role !== 'Trabajador' && activeView !== 'field-reports' && activeView !== 'inventory' && <DataStatus loading={overviewLoading} error={overviewError} generatedAt={overview?.generatedAt} onRefresh={refreshCompanyData} />}
+        {ordersLoading && <p role="status">Cargando órdenes...</p>}
+        {ordersError && <div role="alert">{ordersError} <button onClick={() => void reloadOrders()}>Reintentar</button></div>}
+        {sessionUser?.role === 'Trabajador' && !ordersLoading && !ordersError && <button className="text-button" onClick={() => void reloadOrders()}>Actualizar órdenes</button>}
+        {sessionUser?.role === 'Trabajador' && !!fieldWork.data?.unreadNotifications && <div className="panel worker-response-alert" role="status" aria-live="polite"><strong>Tienes {fieldWork.data.unreadNotifications} respuestas nuevas a tus reportes.</strong><button className="primary-button" onClick={() => setSelectedView('field-reports')}>Ver mensajes y soluciones</button></div>}
         {renderContent()}
       </main>
     </div>

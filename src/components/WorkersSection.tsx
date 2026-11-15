@@ -1,125 +1,40 @@
-import type { EmployeeStatus } from '../types'
+import type { EmployeeStatus, WorkOrder } from '../types'
+import type { EmployeeRow } from '../hooks/useEmployees'
+import { StatCard } from './StatCard'
 
-type WorkersSectionProps = {
-  searchTerm: string
-  statusFilter: 'Todos' | EmployeeStatus
-  onSearchChange: (value: string) => void
-  onStatusChange: (value: 'Todos' | EmployeeStatus) => void
-  onUpdateStatus: (id: string, status: EmployeeStatus) => Promise<void>
-  employees: Array<{
-    id: string
-    name: string
-    area: string
-    title: string
-    status: EmployeeStatus
-    shift: string
-    score: number
-  }>
+type Props = {
+  searchTerm: string; statusFilter: 'Todos' | EmployeeStatus; onSearchChange: (value: string) => void
+  onStatusChange: (value: 'Todos' | EmployeeStatus) => void; onUpdateStatus: (id: string, status: EmployeeStatus) => Promise<void>
+  employees: EmployeeRow[]; canManageEmployees: boolean; orders: WorkOrder[]; ordersError: string
+  employeeLoading: boolean; employeeError: string
 }
 
-export function WorkersSection({
-  searchTerm,
-  statusFilter,
-  onSearchChange,
-  onStatusChange,
-  onUpdateStatus,
-  employees,
-}: WorkersSectionProps) {
-  const filteredEmployees = employees.filter((employee) => {
-    const q = searchTerm.trim().toLowerCase()
-    const matchesQuery =
-      q.length === 0 ||
-      employee.name.toLowerCase().includes(q) ||
-      employee.area.toLowerCase().includes(q) ||
-      employee.title.toLowerCase().includes(q)
-
-    const matchesStatus = statusFilter === 'Todos' || employee.status === statusFilter
-    return matchesQuery && matchesStatus
-  })
-
-  return (
-    <section className="content-block">
-      <div className="panel panel-full">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">Control de personal</p>
-            <h2>Trabajadores y estructura operativa</h2>
-          </div>
-          <button type="button" className="ghost-button">Agregar empleado</button>
-        </div>
-
-        <div className="filters-toolbar">
-          <input
-            type="search"
-            value={searchTerm}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Buscar por nombre, área o cargo"
-            aria-label="Buscar trabajadores"
-          />
-
-          <div className="filter-pills" aria-label="Filtrar por estado">
-            {['Todos', 'Activo', 'Vacaciones', 'Licencia', 'Inactivo'].map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={statusFilter === item ? 'chip active' : 'chip'}
-                onClick={() => onStatusChange(item as 'Todos' | EmployeeStatus)}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Nombre</th>
-                <th>Área</th>
-                <th>Cargo</th>
-                <th>Turno</th>
-                <th>Estado</th>
-                <th>Rendimiento</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEmployees.map((employee) => (
-                <tr key={employee.id}>
-                  <td>{employee.id}</td>
-                  <td>{employee.name}</td>
-                  <td>{employee.area}</td>
-                  <td>{employee.title}</td>
-                  <td>{employee.shift}</td>
-                  <td>
-                    <select
-                      className="status-select"
-                      value={employee.status}
-                      onChange={async (event) => {
-                        const nextStatus = event.target.value as EmployeeStatus
-                        await onUpdateStatus(employee.id, nextStatus)
-                      }}
-                    >
-                      {['Activo', 'Vacaciones', 'Licencia', 'Inactivo'].map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <div className="metric-line">
-                      <span>{employee.score}%</span>
-                      <div className="mini-bar">
-                        <span style={{ width: `${employee.score}%` }} />
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  )
+export function WorkersSection({ searchTerm, statusFilter, onSearchChange, onStatusChange, onUpdateStatus, employees, canManageEmployees, orders, ordersError, employeeLoading, employeeError }: Props) {
+  const filtered = employees.filter(employee => (statusFilter === 'Todos' || employee.status === statusFilter) && [employee.name, employee.area, employee.title, employee.shift].some(value => value.toLowerCase().includes(searchTerm.trim().toLowerCase())))
+  const workload = employees.map(employee => {
+    const assigned = orders.filter(order => order.assignedTo === employee.id)
+    return { ...employee, open: assigned.filter(order => order.status !== 'Cerrada').length, closed: assigned.filter(order => order.status === 'Cerrada').length }
+  }).sort((a, b) => b.open - a.open || a.name.localeCompare(b.name))
+  const areas = Object.entries(employees.reduce<Record<string, number>>((counts, employee) => { counts[employee.area] = (counts[employee.area] ?? 0) + 1; return counts }, {})).sort((a, b) => b[1] - a[1])
+  const available = !employeeLoading && !employeeError
+  const stats = [
+    { label: 'Empleados registrados', value: String(employees.length), delta: 'Fichas guardadas; no equivale a cuentas de acceso', tone: 'blue' },
+    { label: 'Personal activo', value: String(employees.filter(employee => employee.status === 'Activo').length), delta: 'Estado actual Activo', tone: 'green' },
+    { label: 'En vacaciones o licencia', value: String(employees.filter(employee => ['Vacaciones', 'Licencia'].includes(employee.status)).length), delta: 'Estado administrativo de la ficha', tone: 'amber' },
+    { label: 'Personal inactivo', value: String(employees.filter(employee => employee.status === 'Inactivo').length), delta: 'Estado actual Inactivo', tone: 'red' },
+  ]
+  return <section className="content-block">
+    {employeeLoading && <p role="status">Consultando personal…</p>}{employeeError && <p role="alert">No se pudo actualizar el personal: {employeeError}. Los conteos no están disponibles.</p>}
+    {available && <div className="stats-grid">{stats.map(stat => <StatCard key={stat.label} {...stat} />)}</div>}
+    <div className="content-grid"><div className="panel large-panel"><h2>Carga de trabajo</h2><p className="metric-explanation">Órdenes asignadas abiertas y cerradas. No es una calificación de rendimiento.</p>
+      {ordersError || !available ? <p>La carga de trabajo requiere consultar las órdenes y el personal.</p> : !workload.length ? <p>No hay empleados registrados.</p> : <ul className="simple-list">{workload.slice(0, 6).map(employee => <li key={employee.id}><div><strong>{employee.name}</strong><span>{employee.area}</span></div><span>{employee.open} abiertas · {employee.closed} cerradas</span></li>)}</ul>}
+    </div><div className="panel"><h2>Personal por área</h2><p className="metric-explanation">Distribución de todas las fichas registradas, sin filtrar por turno.</p>
+      {!available ? <p>Distribución pendiente de consulta.</p> : !areas.length ? <p>No hay áreas con personal registrado.</p> : <div className="stacked-bars">{areas.map(([area, total]) => <div key={area} className="mini-area-stat"><div className="mini-area-row"><span>{area}</span><strong>{total}</strong></div><div className="mini-bar"><span style={{ width: `${total / employees.length * 100}%` }} /></div></div>)}</div>}
+    </div></div>
+    <div className="panel panel-full"><h2>Trabajadores y estructura operativa</h2><div className="filters-toolbar"><input type="search" aria-label="Buscar trabajadores" placeholder="Buscar por nombre, área, cargo o turno" value={searchTerm} onChange={event => onSearchChange(event.target.value)} /><div className="filter-pills">{(['Todos', 'Activo', 'Vacaciones', 'Licencia', 'Inactivo'] as const).map(status => <button key={status} className={statusFilter === status ? 'chip active' : 'chip'} onClick={() => onStatusChange(status)}>{status}</button>)}</div></div>
+      <p className="metric-explanation">El filtro aplica a esta tabla. Los indicadores superiores incluyen todo el personal.</p>
+      <div className="table-wrap"><table><thead><tr><th>Nombre</th><th>Área</th><th>Cargo</th><th>Turno</th><th>Estado</th><th>Órdenes abiertas</th></tr></thead><tbody>{filtered.map(employee => <tr key={employee.id}><td>{employee.name}</td><td>{employee.area}</td><td>{employee.title}</td><td>{employee.shift || 'Sin registrar'}</td><td><select disabled={!canManageEmployees} value={employee.status} onChange={event => void onUpdateStatus(employee.id, event.target.value as EmployeeStatus)}>{['Activo', 'Vacaciones', 'Licencia', 'Inactivo'].map(status => <option key={status}>{status}</option>)}</select></td><td>{ordersError ? 'No disponible' : workload.find(item => item.id === employee.id)?.open ?? 0}</td></tr>)}</tbody></table></div>
+      {available && !filtered.length && <p>No hay empleados que coincidan con la búsqueda y el estado seleccionados.</p>}
+    </div>
+  </section>
 }

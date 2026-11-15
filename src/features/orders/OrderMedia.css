@@ -1,0 +1,33 @@
+.order-media-dropzone { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 18px; border: 1px dashed #4c657b; border-radius: 11px; background: #102333; }
+.order-media-dropzone.dragging { border-color: #fbbf24; background: #f59e0b12; }
+.order-media-symbol { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: #1a3549; color: #8fc2fa; font-size: 24px; flex-shrink: 0; }
+.order-media-dropzone > div { flex: 1; min-width: 150px; }
+.order-media-dropzone strong { font-size: 12px; }
+.order-media-dropzone p { color: #a9bdcc; font-size: 11px; line-height: 1.6; margin: 5px 0 0; }
+.order-media-dropzone .ghost-button { font-size: 11px; padding: 10px 12px; }
+.order-media-limits { font-size: 10px; line-height: 1.7; color: #91a8ba; margin: 10px 0 0; }
+.order-media-selection { list-style: none; padding: 0; margin: 14px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.order-media-selection li { position: relative; min-width: 0; overflow: hidden; border: 1px solid #2d4356; border-radius: 9px; background: #07131f; }
+.order-media-selection :is(img, video), .order-file-placeholder { display: block; width: 100%; height: 110px; object-fit: contain; background: #050c14; }
+.order-file-info { display: grid; gap: 5px; padding: 10px; }
+.order-file-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.order-create-fields .order-media-instruction-field { display: grid; gap: 7px; padding: 0 10px 12px; font-size: 11px; }
+.order-create-fields .order-media-instruction-field textarea { min-height: 88px; max-height: 200px; font-size: 12px; padding: 9px; }
+.order-media-instruction-field small { text-align: right; }
+.order-attachment-instructions { border-top: 1px solid #2d4356; margin-top: 5px; padding-top: 10px; }
+.order-attachment-instructions strong { font-size: 11px; color: #f4ca72; }
+.order-attachment-instructions p { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: #dbe5ef; white-space: pre-wrap; overflow-wrap: anywhere; }
+.order-create-dialog .order-file-remove { position: absolute; right: 5px; top: 5px; display: grid; place-items: center; width: 28px; height: 28px; min-width: 0; padding: 0; border: 1px solid #607285; border-radius: 50%; background: #07131feb; color: #fff; font-size: 20px; cursor: pointer; }
+.order-attachments { border-top: 1px solid #2d3c50; padding-top: 14px; margin: 16px 0; }
+.order-attachments h4 { margin: 0 0 12px; font-size: 13px; }
+.order-attachments h4 span { margin-left: 6px; padding: 2px 6px; background: #1c3449; border-radius: 5px; color: #a9cffa; }
+.order-attachment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.order-attachment-grid figure { margin: 0; min-width: 0; overflow: hidden; border: 1px solid #2d4356; border-radius: 9px; }
+.order-attachment-grid :is(img, video) { display: block; width: 100%; height: 150px; object-fit: contain; background: #050c14; }
+.order-attachment-grid figcaption { padding: 9px; display: grid; gap: 4px; }
+.order-attachment-grid figcaption a { font-size: 11px; color: #b4d7ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-attachment-grid figcaption small { color: #91a8ba; font-size: 10px; }
+@media (max-width: 760px) {
+  .order-media-selection { grid-template-columns: 1fr; }
+  .order-media-dropzone .ghost-button { flex-basis: 100%; }
+}

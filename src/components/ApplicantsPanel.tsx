@@ -1,14 +1,16 @@
 import type { Applicant, ApplicantStatus } from '../types'
+import { useState } from 'react'
 
 type ApplicantsPanelProps = {
   applicants: Applicant[]
   searchApplicant: string
   applicantFilter: 'Todos' | ApplicantStatus
   isLoadingData: boolean
+  loadError: string | null
   onSearchChange: (value: string) => void
   onFilterChange: (value: 'Todos' | ApplicantStatus) => void
   onApplicantDecision: (id: string, status: ApplicantStatus) => Promise<void>
-  onRegisterOpen: () => void
+  canDecide: boolean
 }
 
 export function ApplicantsPanel({
@@ -16,11 +18,21 @@ export function ApplicantsPanel({
   searchApplicant,
   applicantFilter,
   isLoadingData,
+  loadError,
   onSearchChange,
   onFilterChange,
   onApplicantDecision,
-  onRegisterOpen,
+  canDecide,
 }: ApplicantsPanelProps) {
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [decisionError, setDecisionError] = useState('')
+  const decide = async (id: string, status: ApplicantStatus) => {
+    setPendingId(id)
+    setDecisionError('')
+    try { await onApplicantDecision(id, status) }
+    catch (error) { setDecisionError(error instanceof Error ? error.message : 'No se pudo guardar la decisión.') }
+    finally { setPendingId(null) }
+  }
   const filteredApplicants = applicants.filter((applicant) => {
     const q = searchApplicant.trim().toLowerCase()
     const matchesText =
@@ -40,9 +52,6 @@ export function ApplicantsPanel({
           <p className="eyebrow">Reclutamiento</p>
           <h2>Solicitudes de ingreso y autorización</h2>
         </div>
-        <button type="button" className="ghost-button" onClick={onRegisterOpen}>
-          Registrar usuario
-        </button>
       </div>
 
       <div className="filters-toolbar">
@@ -67,10 +76,15 @@ export function ApplicantsPanel({
         </div>
       </div>
 
+      {decisionError && <p role="alert">{decisionError}</p>}
       <div className="applicant-grid">
         {isLoadingData ? (
           <div style={{ gridColumn: '1 / -1', padding: '1.25rem', color: '#64748b', fontWeight: 600 }}>
-            Cargando solicitudes desde el backend local...
+            Cargando solicitudes desde la base de datos...
+          </div>
+        ) : loadError ? (
+          <div role="alert" style={{ gridColumn: '1 / -1', padding: '1.25rem', color: '#fecaca', fontWeight: 600 }}>
+            Error al cargar solicitudes: {loadError}
           </div>
         ) : filteredApplicants.length === 0 ? (
           <div style={{ gridColumn: '1 / -1', padding: '1.25rem', color: '#64748b', fontWeight: 600 }}>
@@ -100,14 +114,14 @@ export function ApplicantsPanel({
               ))}
             </div>
 
-            <div className="applicant-actions">
-              <button type="button" className="approve-button" onClick={() => onApplicantDecision(applicant.id, 'Aprobado')}>
+            {canDecide && <div className="applicant-actions">
+              <button type="button" className="approve-button" disabled={pendingId !== null} onClick={() => void decide(applicant.id, 'Aprobado')}>
                 Autorizar
               </button>
-              <button type="button" className="reject-button" onClick={() => onApplicantDecision(applicant.id, 'Rechazado')}>
+              <button type="button" className="reject-button" disabled={pendingId !== null} onClick={() => void decide(applicant.id, 'Rechazado')}>
                 Rechazar
               </button>
-            </div>
+            </div>}
           </article>
         ))}
       </div>

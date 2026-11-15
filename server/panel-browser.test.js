@@ -1,0 +1,491 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { spawn } from 'node:child_process'
+import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import net from 'node:net'
+import { randomBytes } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
+import { createServer as createViteServer } from 'vite'
+import bcrypt from 'bcryptjs'
+import sqlite3 from 'sqlite3'
+import { open } from 'sqlite'
+import { migrateSqliteAuthSchema } from './migrations/auth-security.js'
+
+async function waitFor(check, description) {
+  for (let i = 0; i < 150; i++) {
+    try { const value = await check(); if (value) return value } catch { /* Wait for readiness. */ }
+    await delay(100)
+  }
+  throw new Error(`Timeout: ${description}`)
+}
+async function availablePort() {
+  const server = net.createServer()
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = server.address().port
+  await new Promise(resolve => server.close(resolve))
+  return port
+}
+
+test('manager panel loads in Chrome, navigates every section, persists orders and recovers from API failure', { timeout: 90000 }, async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'jp-panel-browser-'))
+  const children = []
+  let vite
+  let ws
+  t.after(async () => {
+    ws?.close()
+    // Shut the browser down before the API, so websocket clients disconnect cleanly.
+    for (const child of children.reverse()) {
+      if (child.exitCode === null) {
+        const exited = new Promise(resolve => child.once('exit', resolve))
+        child.kill()
+        await exited
+      }
+    }
+    await vite?.close()
+    // Browser subprocesses can take a moment to release their profile files on Windows.
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  })
+  const databasePath = path.join(directory, 'panel.sqlite')
+  const encryptionKey = randomBytes(32).toString('base64')
+  process.env.MFA_ENCRYPTION_KEY = encryptionKey
+  const { encryptMfaSecret, generateTotpSecret, createTotpToken } = await import('./auth-security.js')
+  const secret = generateTotpSecret()
+  const password = randomBytes(24).toString('hex')
+  const db = await open({ filename: databasePath, driver: sqlite3.Database })
+  await migrateSqliteAuthSchema(db)
+  const optionalMfa = process.env.PANEL_MFA_OPTIONAL === 'true'
+  await db.run(`INSERT INTO users (id,email,password_hash,name,role,mfa_enabled,mfa_secret_encrypted)
+    VALUES ('browser-manager','browser@example.test',?,'Gerente de prueba','Gerente',?,?)`,
+  [await bcrypt.hash(password, 12), optionalMfa ? 0 : 1, optionalMfa ? null : encryptMfaSecret(secret)])
+  await db.close()
+  const apiPort = await availablePort()
+  vite = await createViteServer({ configFile: false, root: process.cwd(), plugins: [(await import('@vitejs/plugin-react')).default()],
+    server: { host: '127.0.0.1', port: 0, proxy: { '/api': { target: `http://127.0.0.1:${apiPort}` }, '/socket.io': { target: `http://127.0.0.1:${apiPort}`, ws: true } } } })
+  await vite.listen()
+  const origin = `http://127.0.0.1:${vite.httpServer.address().port}`
+  // An empty client API URL forces the same-origin proxy, independent of .env.local.
+  vite.config.env.VITE_API_URL = ''
+  const api = spawn(process.execPath, ['server/server.js'], { env: { ...process.env, DATABASE_URL: '', SQLITE_DB_PATH: databasePath, ORDER_UPLOAD_DIR: path.join(directory, 'uploads'), MFA_ENCRYPTION_KEY: encryptionKey, PORT: String(apiPort), ALLOWED_ORIGINS: origin, NODE_ENV: 'test', MANAGER_MFA_REQUIRED: optionalMfa ? 'false' : 'true' }, stdio: ['ignore', 'pipe', 'pipe'] })
+  children.push(api)
+  let apiOutput = ''
+  api.stdout.on('data', chunk => { apiOutput += chunk })
+  api.stderr.on('data', chunk => { apiOutput += chunk })
+  await waitFor(async () => (await fetch(`http://127.0.0.1:${apiPort}/api/health`)).ok, 'API start')
+  const fixture = await open({ filename: databasePath, driver: sqlite3.Database })
+  await fixture.run("INSERT INTO employees (id,name,area,title,status,shift,lastEntry) VALUES ('browser-tech','Tecnico de prueba','Electricidad','Tecnico','Activo','Dia','')")
+  await fixture.close()
+
+  const executable = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+  const profile = path.join(directory, 'chrome')
+  const chrome = spawn(executable, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-extensions', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore', windowsHide: true })
+  children.push(chrome)
+  chrome.on('error', () => {})
+  const debuggingPort = await waitFor(async () => Number((await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]), 'Chrome start')
+  const targets = await (await fetch(`http://127.0.0.1:${debuggingPort}/json/list`)).json()
+  const page = targets.find(target => target.type === 'page')
+  ws = new WebSocket(page.webSocketDebuggerUrl)
+  await new Promise((resolve, reject) => { ws.addEventListener('open', resolve, { once: true }); ws.addEventListener('error', reject, { once: true }) })
+  let sequence = 0
+  const pending = new Map()
+  const exceptions = []
+  ws.addEventListener('message', event => {
+    const message = JSON.parse(event.data)
+    if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.text)
+    if (message.id && pending.has(message.id)) {
+      const { resolve, reject } = pending.get(message.id)
+      pending.delete(message.id)
+      if (message.error) reject(new Error(message.error.message))
+      else resolve(message.result)
+    }
+  })
+  const send = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++sequence; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params }))
+  })
+  const evaluate = async expression => {
+    const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text)
+    return result.result.value
+  }
+  const text = () => evaluate('document.body.innerText')
+  const see = expected => waitFor(async () => (await text()).includes(expected), expected)
+  const metric = label => evaluate(`([...document.querySelectorAll('.stat-card')].find(card => card.querySelector('span')?.textContent === ${JSON.stringify(label)})?.querySelector('strong')?.textContent)`)
+  const click = label => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}); if (!button) throw Error('Button missing'); button.click(); })()`)
+  const fill = (selector, value) => evaluate(`(() => { const el=document.querySelector(${JSON.stringify(selector)}); if (!el) throw Error('Input missing'); Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value').set.call(el,${JSON.stringify(value)}); el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); })()`)
+  await send('Runtime.enable')
+  await send('Page.enable')
+  await send('Network.enable')
+  await send('Page.navigate', { url: origin })
+  await see('Inicia sesión')
+  await fill('#login-email', 'browser@example.test')
+  await fill('#login-password', password)
+  // Reproduce the real failure: an old API returns user/token without nextStep.
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/auth/login', requestStage: 'Request' }] })
+  const interceptLegacyLogin = event => {
+    const message = JSON.parse(event.data)
+    if (message.method === 'Fetch.requestPaused') {
+      void send('Fetch.fulfillRequest', { requestId: message.params.requestId, responseCode: 200,
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
+        body: Buffer.from(JSON.stringify({ user: { email: 'browser@example.test', name: 'Gerente de prueba', role: 'Gerente' }, token: 'legacy-test-token' })).toString('base64') })
+    }
+  }
+  ws.addEventListener('message', interceptLegacyLogin)
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  await see('La API activa está desactualizada')
+  assert.ok(await evaluate("document.querySelector('.login-form') !== null"), 'Legacy API must not blank the screen')
+  ws.removeEventListener('message', interceptLegacyLogin)
+  await send('Fetch.disable')
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  if (!optionalMfa) {
+    await see('Confirma tu identidad')
+    await fill('#mfa-code', createTotpToken(secret, Math.floor(Date.now() / 30000)))
+    await evaluate("document.querySelector('.login-form').requestSubmit()")
+  }
+  await see('Panel corporativo de operación')
+  await see('Aún no hay órdenes registradas.')
+  await waitFor(async () => (await metric('Empleados activos')) === '1', 'real employee aggregate')
+  assert.equal(await metric('Órdenes abiertas'), '0')
+  assert.equal(await metric('Avance del trabajo abierto'), '—')
+  await click('Crear usuario')
+  await see('Perfil y responsabilidades')
+  await waitFor(() => evaluate("document.querySelectorAll('input[name=\"new-user-role\"]').length === 3"), 'three profiles managed by Gerente')
+  assert.equal(await evaluate("Boolean(document.querySelector('input[name=\"new-user-role\"][value=\"Gerente\"]'))"), false)
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
+  const userFormShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await mkdir(path.resolve('.local-secrets'), { recursive: true })
+  await writeFile(path.resolve('.local-secrets/crear-usuario-verificado.png'), Buffer.from(userFormShot.data, 'base64'))
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), 'User form fits mobile viewport')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
+  await fill('#new-user-name', 'Secretaria de prueba')
+  await fill('#new-user-email', 'secretary.browser@example.test')
+  await fill('#new-user-password', password)
+  await fill('#new-user-confirm', 'different-confirmation-password')
+  await click('Crear cuenta con este perfil')
+  await see('Las contraseñas no coinciden.')
+  await fill('#new-user-confirm', password)
+  await click('Crear cuenta con este perfil')
+  await see('ya tiene acceso')
+  await click('Crear otra cuenta')
+  await evaluate("document.querySelector('input[name=\"new-user-role\"][value=\"Trabajador\"]').click()")
+  await fill('#new-user-name', 'Nuevo trabajador de prueba')
+  await fill('#new-user-email', 'new-worker.browser@example.test')
+  await fill('#new-worker-area', 'Plomería')
+  await fill('#new-worker-title', 'Técnico de mantenimiento')
+  await fill('#new-user-password', password)
+  await fill('#new-user-confirm', password)
+  await click('Crear cuenta con este perfil')
+  await see('ya tiene acceso')
+  await click('Crear otra cuenta')
+  await evaluate("document.querySelector('input[name=\"new-user-role\"][value=\"Trabajador\"]').click()")
+  await evaluate("[...document.querySelectorAll('label')].find(el => el.textContent.trim() === 'Vincular ficha existente').click()")
+  await see('Ficha del empleado')
+  await fill('#new-user-employee', 'browser-tech')
+  await fill('#new-user-email', 'worker.browser@example.test')
+  await fill('#new-user-password', password)
+  await fill('#new-user-confirm', password)
+  await click('Crear cuenta con este perfil')
+  await see('ya tiene acceso')
+  await click('Volver al panel')
+  for (const [label, heading] of [['Trabajadores', 'Trabajadores y estructura operativa'], ['Personal', 'Asistencia semanal'], ['Órdenes', 'Órdenes de trabajo y seguimiento'], ['Contratos', 'Contratos vigentes'], ['Secretaría', 'Agenda del gerente'], ['Reportes', 'Reportes y exportación'], ['Dashboard', 'Seguimiento de órdenes']]) {
+    await click(label)
+    await waitFor(() => evaluate(`[...document.querySelectorAll('main h2')].some(el => el.textContent === ${JSON.stringify(heading)})`), heading)
+    assert.ok(await evaluate("document.querySelector('.admin-shell') !== null"))
+  }
+  await click('Nueva orden')
+  await see('Información del servicio')
+  await click('Crear orden')
+  assert.ok(await evaluate("document.querySelector('#order-client').matches(':invalid')"), 'Client is required')
+  await fill('#order-client', 'Cliente navegador')
+  await fill('#order-area', 'Mantenimiento eléctrico')
+  await fill('#order-site-address', 'Calle 72 # 10-34')
+  await fill('#order-site-city', 'Bogotá')
+  await fill('#order-site-neighborhood', 'Quinta Camacho')
+  await fill('#order-site-building', 'Conjunto Los Cedros, torre 2')
+  await fill('#order-site-unit', 'Apartamento 503, piso 5')
+  await fill('#order-site-contactName', 'Contacto de prueba')
+  await fill('#order-site-contactPhone', '+57 300 123 4567')
+  await fill('#order-site-accessHours', 'Lunes a viernes de 8:00 a 17:00')
+  await fill('#order-site-accessInstructions', 'Ingresar por portería norte y anunciarse.')
+  await fill('#order-site-workRequirements', 'Llevar escalera y protección para el piso.')
+  await see('Pendiente de asignación')
+  // Real image and video fixtures generated in the test browser, not a mocked upload.
+  await evaluate(`(async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 160; canvas.height = 100;
+    const context = canvas.getContext('2d'); context.fillStyle = '#164e63'; context.fillRect(0,0,160,100);
+    context.fillStyle = '#fbbf24'; context.fillRect(40,25,80,50);
+    const photo = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    const stream = canvas.captureStream(10);
+    const recorder = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp8'});
+    const chunks = [];
+    const completed = new Promise(resolve => { recorder.onstop = () => resolve(new Blob(chunks, {type:'video/webm'})); });
+    recorder.ondataavailable = event => { if(event.data.size) chunks.push(event.data); };
+    recorder.start();
+    const timer = setInterval(() => {context.fillStyle = '#fbbf24';context.fillRect(40,25,80,50);}, 50);
+    await new Promise(resolve => setTimeout(resolve, 400)); recorder.stop();
+    const video = await completed; clearInterval(timer); stream.getTracks().forEach(track => track.stop());
+    const data = new DataTransfer();
+    data.items.add(new File([photo], 'referencia-servicio.png', {type:'image/png'}));
+    data.items.add(new File([video], 'detalle-servicio.webm', {type:'video/webm'}));
+    const input = document.querySelector('#order-media-files'); input.files = data.files; input.dispatchEvent(new Event('change',{bubbles:true}));
+  })()`)
+  await waitFor(() => evaluate("document.querySelectorAll('.order-media-selection li').length === 2"), 'two media previews')
+  await fill('textarea[aria-label="Indicaciones para referencia-servicio.png"]', 'Reparar la fisura de esta pared y pintar al terminar.')
+  await fill('textarea[aria-label="Indicaciones para detalle-servicio.webm"]', 'Revisar la zona mostrada en el video antes de iniciar.')
+  await evaluate("document.querySelector('#order-media-title').scrollIntoView({block:'center'})")
+  const orderFormShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/nueva-orden-verificada.png'), Buffer.from(orderFormShot.data, 'base64'))
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), 'New order fits mobile viewport')
+  assert.ok(await evaluate("document.querySelector('.order-create-footer').getBoundingClientRect().bottom <= window.innerHeight"), 'Create button remains visible on mobile')
+  const orderMobileShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  await writeFile(path.resolve('.local-secrets/nueva-orden-movil.png'), Buffer.from(orderMobileShot.data, 'base64'))
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
+  await click('Crear orden')
+  await see('Cliente navegador')
+  await waitFor(() => evaluate("document.querySelectorAll('.order-attachment-grid figure').length === 2"), 'attachments saved')
+  await waitFor(() => evaluate("document.querySelector('.order-attachment-grid img')?.naturalWidth > 0"), 'photo loaded from API')
+  await waitFor(() => evaluate("document.querySelector('.order-attachment-grid video')?.readyState >= 1"), 'video metadata loaded from API')
+  await see('Reparar la fisura de esta pared y pintar al terminar.')
+  await fill('.order-editor select', 'browser-tech')
+  await click('Guardar cambios')
+  await waitFor(() => evaluate("document.querySelector('.order-footer')?.textContent.includes('Asignada')"), 'assignment saved')
+  await fill('.order-editor label:nth-child(2) select', 'En ejecución')
+  await fill('.order-editor input', '60')
+  await click('Guardar cambios')
+  await waitFor(() => evaluate("document.querySelector('.order-footer')?.textContent.includes('60%')"), 'progress saved')
+  await fill('.order-editor label:nth-child(2) select', 'Cerrada')
+  await click('Cerrar orden')
+  await see('Trabajo cerrado.')
+  await click('Dashboard')
+  await see('100%')
+  await waitFor(async () => (await metric('Órdenes cerradas')) === '1', 'overview updates after closing')
+  assert.equal(await metric('Avance del trabajo abierto'), '—', 'Closed work does not inflate open progress')
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/dashboard/overview', requestStage: 'Request' }] })
+  const rejectOverview = event => {
+    const message = JSON.parse(event.data)
+    if (message.method === 'Fetch.requestPaused') void send('Fetch.fulfillRequest', { requestId: message.params.requestId, responseCode: 503,
+      responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify({ message: 'Estadísticas temporalmente no disponibles.' })).toString('base64') })
+  }
+  ws.addEventListener('message', rejectOverview)
+  await click('Actualizar datos')
+  await see('No se pudo actualizar resumen.')
+  assert.equal(await metric('Órdenes cerradas'), '1', 'Connection errors preserve the last known value')
+  await see('los datos pueden haber cambiado')
+  ws.removeEventListener('message', rejectOverview)
+  await send('Fetch.disable')
+  await click('Actualizar datos')
+  await see('Datos guardados en la empresa')
+  await click('Reportes')
+  await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: directory })
+  await click('Descargar órdenes CSV')
+  const csv = await waitFor(async () => readFile(path.join(directory, 'ordenes-de-trabajo.csv'), 'utf8'), 'live CSV download')
+  assert.ok(csv.includes('Cliente navegador') && csv.includes('Cerrada') && csv.includes('100'))
+  await click('Dashboard')
+  await send('Page.reload')
+  await see('Cliente navegador')
+  await see('100%')
+  await send('Network.setBlockedURLs', { urls: ['*/api/*'] })
+  await send('Page.reload')
+  await see('No se pudo cargar el panel')
+  await send('Network.setBlockedURLs', { urls: [] })
+  await click('Reintentar conexión')
+  await see('Cliente navegador')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
+  const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  const artifacts = path.resolve('.local-secrets')
+  await mkdir(artifacts, { recursive: true })
+  await writeFile(path.join(artifacts, 'panel-verificado.png'), Buffer.from(screenshot.data, 'base64'))
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), 'No horizontal overflow on mobile')
+  await click('Cerrar sesión')
+  await see('Inicia sesión')
+  await fill('#login-email', 'secretary.browser@example.test')
+  await fill('#login-password', password)
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  await see('Panel corporativo de operación')
+  assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Crear usuario')"), false)
+  assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(el => ['Contratos','Reportes','Trabajadores'].includes(el.textContent.trim()))"), false)
+  await click('Órdenes')
+  await see('Cliente navegador')
+  assert.equal(await evaluate("document.querySelectorAll('.order-editor').length"), 0)
+  await click('Nueva orden')
+  await see('Asignación por Gerencia')
+  assert.equal(await evaluate("document.querySelector('#order-technician') !== null"), false)
+  await click('Cancelar')
+  const fieldFixture = await open({ filename: databasePath, driver: sqlite3.Database })
+  await fieldFixture.run(`INSERT INTO work_orders (id,client,area,priority,status,progress,assigned_to,scheduled_date,observations,created_at,updated_at,site_details)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, ['field-order-test', 'Obra de reportes', 'Electricidad', 'Media', 'Asignada', 0, 'browser-tech', '2999-01-01', '', new Date().toISOString(), new Date().toISOString(), JSON.stringify({ address: 'Calle de prueba 123', city: 'Bogotá', geofence: { latitude: 4.65, longitude: -74.06, radius: 100 } })])
+  await fieldFixture.close()
+  await send('Browser.grantPermissions', { origin, permissions: ['geolocation'] })
+  await send('Emulation.setGeolocationOverride', { latitude: 4.65, longitude: -74.06, accuracy: 15 })
+  await click('Cerrar sesión')
+  await see('Inicia sesión')
+  await fill('#login-email', 'worker.browser@example.test')
+  await fill('#login-password', password)
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  await see('Registra tu ubicación para entrar')
+  assert.equal(await evaluate("document.querySelector('.sidebar-nav')"), null, 'Worker has no panel before location')
+  const gateShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/acceso-ubicacion-obligatoria.png'), Buffer.from(gateShot.data, 'base64'))
+  await click('Permitir ubicación y entrar')
+  await see('Mi espacio de trabajo')
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].map(el => el.textContent.trim())"), ['Mi jornada', 'Órdenes', 'Reportes de obra'])
+  await waitFor(() => evaluate("Boolean(document.querySelector('.worker-assignment'))"), 'assigned work shown first')
+  assert.equal(await evaluate("document.querySelector('#arrival-order')"), null)
+  for (let photoIndex = 0; photoIndex < 3; photoIndex++) {
+    await evaluate(`(async () => {
+      const form = document.querySelector('input[name="photo"]').form;
+      const canvas = document.createElement('canvas'); canvas.width=20; canvas.height=20;
+      const ctx=canvas.getContext('2d'); ctx.fillStyle=['red','green','blue'][${photoIndex}]; ctx.fillRect(0,0,20,20);
+      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+      const transfer=new DataTransfer(); transfer.items.add(new File([blob],'avance.png',{type:'image/png'}));
+      form.querySelector('input[name="photo"]').files=transfer.files;
+      form.querySelector('textarea[name="caption"]').value='Evidencia diaria ${photoIndex + 1}';
+      form.requestSubmit();
+    })()`)
+    await see(`Evidencia diaria ${photoIndex + 1}`)
+    await waitFor(() => evaluate("!document.querySelector('input[name=\"photo\"]').disabled"), 'photo submission completes')
+  }
+  await see('Requisito diario cumplido')
+  assert.equal(await evaluate("document.body.innerText.includes('Foto y ubicaci\u00f3n guardadas juntas.')"), false, 'No success notice after photos')
+  await evaluate("document.querySelectorAll('img').forEach(img => { if(img.src.includes('/field-work/photos/')) img.loading='eager' })")
+  await waitFor(() => evaluate("[...document.querySelectorAll('img')].filter(img=>img.src.includes('/field-work/photos/') && img.naturalWidth>0).length===3"), 'daily photos loaded')
+  await fill('select[aria-label="Tipo de reporte"]', 'Solicitud de material')
+  await fill('input[aria-label="Material solicitado 1"]', 'Tubo PVC de media pulgada')
+  await fill('input[aria-label="Cantidad solicitada 1"]', '2.5')
+  await fill('input[aria-label="Unidad solicitada 1"]', 'metro')
+  await click('Agregar otro material')
+  await fill('input[aria-label="Material solicitado 2"]', 'Unión PVC')
+  await fill('input[aria-label="Cantidad solicitada 2"]', '4')
+  await fill('input[aria-label="Unidad solicitada 2"]', 'unidad')
+  await fill('select[aria-label="Prioridad del reporte"]', 'Alta')
+  await fill('#field-report-title', 'Materiales para continuar')
+  await fill('#field-report-details', 'Necesito dos tubos y una llave para continuar en el apartamento.')
+  await fill('#field-report-action', 'Solicito envío de los materiales.')
+  await click('Enviar')
+  await see('Reporte enviado.')
+  await see('Materiales solicitados')
+  await see('Materiales para continuar')
+  const workspaceShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/jornada-trabajador-verificada.png'), Buffer.from(workspaceShot.data, 'base64'))
+  await click('Órdenes')
+  await see('Cliente navegador')
+  await evaluate("document.querySelector('.order-attachment-grid')?.scrollIntoView()")
+  await waitFor(() => evaluate("document.querySelector('.order-attachment-grid img')?.naturalWidth > 0"), 'worker can load assigned photo')
+  await waitFor(() => evaluate("document.querySelector('.order-attachment-grid video')?.readyState >= 1"), 'worker can play assigned video')
+  await see('Apartamento 503, piso 5')
+  await see('Ingresar por portería norte y anunciarse.')
+  await see('Llevar escalera y protección para el piso.')
+  assert.ok(await evaluate("[...document.querySelectorAll('.order-map-link')].some(link => link.href.includes('Calle%2072'))"), 'Map link uses the saved address')
+  await see('Reparar la fisura de esta pared y pintar al terminar.')
+  await see('Revisar la zona mostrada en el video antes de iniciar.')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
+  const attachmentShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/orden-adjuntos-trabajador.png'), Buffer.from(attachmentShot.data, 'base64'))
+  assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => ['Crear usuario', 'Nueva orden', 'Nueva OT'].includes(el.textContent.trim()))"), false)
+  await click('Cerrar sesión')
+  await see('Inicia sesión')
+  await fill('#login-email', 'browser@example.test')
+  await fill('#login-password', password)
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  if (!optionalMfa) {
+    await see('Confirma tu identidad')
+    await fill('#mfa-code', createTotpToken(secret, Math.floor(Date.now() / 30000) + 1))
+    await evaluate("document.querySelector('.login-form').requestSubmit()")
+  }
+  await see('Panel corporativo de operación')
+  await click('Reportes de obra')
+  await see('Materiales para continuar')
+  await see('Precisión aproximada: 15 m')
+  await fill('.field-report-card select', 'Resuelto')
+  await fill('.field-report-card textarea', 'Materiales enviados. Puedes continuar.')
+  await click('Guardar seguimiento')
+  await see('Materiales enviados. Puedes continuar.')
+  await see('Materiales enviados. Puedes continuar.')
+  const reviewShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/reportes-gerente-verificados.png'), Buffer.from(reviewShot.data, 'base64'))
+  await click('Órdenes')
+  await evaluate("document.querySelector('.order-card details')?.setAttribute('open','')")
+  await fill('input[aria-label="Latitud de la obra"]', '4.65')
+  await fill('input[aria-label="Longitud de la obra"]', '-74.06')
+  await fill('input[aria-label="Radio de llegada"]', '150')
+  await click('Guardar radio de llegada')
+  await see('Radio de llegada: 150 m')
+  await click('Reportes de obra')
+  await see('Dentro del radio · llegada detectada')
+  await see('Radio: 100 m')
+  await click('Bodega e inventario')
+  await see('Bodega, herramientas y materiales')
+  await evaluate("document.querySelector('.inventory-create').open=true")
+  await fill('.inventory-create input[name="name"]', 'Taladro de inventario')
+  await fill('.inventory-create input[name="code"]', '90000001')
+  await click('Registrar en inventario')
+  await see('Registrado: Taladro de inventario')
+  await evaluate("[...document.querySelectorAll('.inventory-item')].find(el=>el.textContent.includes('90000001')).click()")
+  await waitFor(() => evaluate("document.querySelector('.inventory-label img')?.naturalWidth > 0"), 'inventory QR generated')
+  await fill('.inventory-detail select[name="employeeId"]', 'browser-tech')
+  await fill('.inventory-detail select[name="orderId"]', 'field-order-test')
+  await fill('.inventory-detail textarea[name="notes"]', 'Préstamo de prueba con maletín.')
+  await click('Confirmar movimiento')
+  await waitFor(() => evaluate("document.querySelector('.inventory-detail')?.textContent.includes('Responsable: Tecnico de prueba')"), 'tool assigned to worker')
+  await fill('.inventory-detail textarea[name="notes"]', 'Devuelto completo y operativo.')
+  await click('Confirmar movimiento')
+  await waitFor(() => evaluate("document.querySelector('.inventory-detail .field-form select')?.value === 'Préstamo'"), 'tool returned to stock')
+  await fill('.inventory-create select[name="kind"]', 'Material')
+  await fill('.inventory-create input[name="name"]', 'Cable en bodega')
+  await fill('.inventory-create input[name="code"]', '90000002')
+  await fill('.inventory-create input[name="unit"]', 'metro')
+  await fill('.inventory-create input[name="initial"]', '12.5')
+  await fill('.inventory-create input[name="minimum"]', '5')
+  await click('Registrar en inventario')
+  await see('Registrado: Cable en bodega')
+  await evaluate("[...document.querySelectorAll('.inventory-item')].find(el=>el.textContent.includes('90000002')).click()")
+  await see('Disponible en bodega: 12.5 metro')
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), 'Inventory fits mobile')
+  const inventoryShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/inventario-verificado.png'), Buffer.from(inventoryShot.data, 'base64'))
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
+  await click('Cerrar sesión')
+  await see('Inicia sesión')
+  await send('Browser.setPermission', { permission: { name: 'geolocation' }, setting: 'denied', origin })
+  await fill('#login-email', 'new-worker.browser@example.test')
+  await fill('#login-password', password)
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  await see('Registra tu ubicación para entrar')
+  await click('Permitir ubicación y entrar')
+  await see('Permiso de ubicación rechazado')
+  assert.equal(await evaluate("document.querySelector('.sidebar-nav')"), null, 'Denied location cannot access the panel')
+  const deniedShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/acceso-ubicacion-denegada.png'), Buffer.from(deniedShot.data, 'base64'))
+  await send('Browser.setPermission', { permission: { name: 'geolocation' }, setting: 'granted', origin })
+  await click('Permitir ubicación y entrar')
+  await see('Mi espacio de trabajo')
+  await click('Cerrar sesión')
+  await see('Inicia sesión')
+  await fill('#login-email', 'new-worker.browser@example.test')
+  await fill('#login-password', password)
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  await see('Mi espacio de trabajo')
+  assert.equal(await evaluate("document.body.innerText.includes('Registra tu ubicaci\u00f3n para entrar')"), false, 'No repeat notice on same-day login')
+  await click('Cerrar sesión')
+  await see('Inicia sesión')
+  await fill('#login-email', 'worker.browser@example.test')
+  await fill('#login-password', password)
+  await evaluate("document.querySelector('.login-form').requestSubmit()")
+  await see('Mi espacio de trabajo')
+  await see('Tienes 1 respuestas sin leer.')
+  await see('Materiales enviados. Puedes continuar.')
+  assert.equal(await evaluate("document.querySelector('#field-report-order')"), null, 'Worker report does not offer a work-site selector')
+  assert.equal(await evaluate("document.querySelector('select[name=\"orderId\"]')"), null, 'Photo uses current assignment')
+  assert.equal(await evaluate("document.querySelector('#arrival-order')"), null, 'Manual arrival panel is removed')
+  await click('Marcar como leída')
+  await see('No tienes respuestas nuevas.')
+  const workerTaskShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+  await writeFile(path.resolve('.local-secrets/trabajador-asignacion-mensajes.png'), Buffer.from(workerTaskShot.data, 'base64'))
+  assert.deepEqual(exceptions, [], 'No uncaught browser exceptions')
+  assert.equal(api.exitCode, null, apiOutput)
+  console.log('Browser verification: login + MFA, seven sections, create/assign/progress/close, reload, API failure/retry: passed.')
+})

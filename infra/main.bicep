@@ -15,8 +15,8 @@ param postgresAdminUser string = 'jpadmin'
 param postgresAdminPassword string
 
 @secure()
-@description('JWT secret used by the backend.')
-param jwtSecret string
+@description('Base64-encoded random 32-byte key used to encrypt MFA secrets.')
+param mfaEncryptionKey string
 
 @description('Frontend origin allowed by CORS. Leave empty to allow all Azure Static Web App defaults.')
 param frontendOrigin string = ''
@@ -102,8 +102,12 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
           value: '3000'
         }
         {
-          name: 'JWT_SECRET'
-          value: jwtSecret
+          name: 'TRUST_PROXY_HOPS'
+          value: '1'
+        }
+        {
+          name: 'MFA_ENCRYPTION_KEY'
+          value: mfaEncryptionKey
         }
         {
           name: 'ALLOWED_ORIGINS'
