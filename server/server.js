@@ -9,8 +9,6 @@ import path from 'node:path'
 import { Server } from 'socket.io'
 import pg from 'pg'
 import QRCode from 'qrcode'
-import sqlite3 from 'sqlite3'
-import { open } from 'sqlite'
 import {
   createCsrfToken,
   createOpaqueToken,
@@ -94,6 +92,7 @@ const initSqlite = async () => {
     return sqliteDb
   }
 
+  const [{ default: sqlite3 }, { open }] = await Promise.all([import('sqlite3'), import('sqlite')])
   sqliteDb = await open({
     filename: SQLITE_DB_PATH,
     driver: sqlite3.Database,

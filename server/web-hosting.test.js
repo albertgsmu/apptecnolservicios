@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,6 +16,37 @@ test('Render and custom domains are exact allowed origins', () => {
   assert.throws(() => webAllowedOrigins({ ALLOWED_ORIGINS: '*' }))
   assert.throws(() => webAllowedOrigins({ APP_ORIGIN: 'https://empresa.test/subruta' }))
   assert.throws(() => webAllowedOrigins({ APP_ORIGIN: 'https://user:secret@empresa.test' }))
+})
+
+test('PostgreSQL startup never loads the SQLite native driver', { timeout: 20000 }, async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'jp-postgres-startup-'))
+  const hook = path.join(directory, 'block-sqlite.mjs')
+  await writeFile(hook, `import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      if (specifier === 'sqlite' || specifier === 'sqlite3') throw new Error('SQLITE_MUST_NOT_LOAD');
+      return nextResolve(specifier, context);
+    } });`)
+  const listener = net.createServer()
+  await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve))
+  const closedPort = listener.address().port
+  await new Promise(resolve => listener.close(resolve))
+  const api = spawn(process.execPath, ['--import', pathToFileURL(hook).href, 'server/server.js'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
+    NODE_ENV: 'production', DATABASE_URL: `postgresql://test:unused@127.0.0.1:${closedPort}/test`,
+    MFA_ENCRYPTION_KEY: randomBytes(32).toString('base64'), SERVE_FRONTEND: 'false',
+    ALLOWED_ORIGINS: 'https://mantenimiento-test.onrender.com', APP_ORIGIN: '', RENDER_EXTERNAL_URL: '',
+  } })
+  t.after(async () => {
+    if (api.exitCode === null) { const exited = new Promise(resolve => api.once('exit', resolve)); api.kill(); await exited }
+    await rm(directory, { recursive: true, force: true })
+  })
+  let output = ''
+  api.stdout.on('data', chunk => { output += chunk })
+  api.stderr.on('data', chunk => { output += chunk })
+  const exitCode = await new Promise(resolve => api.once('exit', resolve))
+  assert.equal(exitCode, 1)
+  assert.ok(output.includes('No se pudo iniciar la API:'), output)
+  assert.ok(/ECONNREFUSED|connect|Connection/i.test(output), 'Startup reaches PostgreSQL connection validation')
+  assert.ok(!output.includes('SQLITE_MUST_NOT_LOAD'), output)
 })
 
 test('built web, API and authentication work under one hosting origin', { timeout: 30000 }, async t => {

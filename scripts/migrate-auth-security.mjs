@@ -1,7 +1,5 @@
 import dotenv from 'dotenv'
 import pg from 'pg'
-import sqlite3 from 'sqlite3'
-import { open } from 'sqlite'
 import path from 'node:path'
 import { migratePostgresAuthSchema, migrateSqliteAuthSchema } from '../server/migrations/auth-security.js'
 
@@ -14,6 +12,7 @@ if (!['postgres', 'sqlite'].includes(target)) {
 }
 
 if (target === 'sqlite') {
+  const [{ default: sqlite3 }, { open }] = await Promise.all([import('sqlite3'), import('sqlite')])
   const filename = path.resolve(process.env.SQLITE_DB_PATH ?? 'server/data/jp.db')
   const db = await open({ filename, driver: sqlite3.Database })
   try {

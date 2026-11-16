@@ -4,8 +4,6 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import pg from 'pg'
-import sqlite3 from 'sqlite3'
-import { open } from 'sqlite'
 
 dotenv.config({ path: '.env.local' })
 dotenv.config()
@@ -22,6 +20,7 @@ await mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 })
 
 if (target === 'sqlite') {
   const filename = path.resolve(process.env.SQLITE_DB_PATH ?? 'server/data/jp.db')
+  const [{ default: sqlite3 }, { open }] = await Promise.all([import('sqlite3'), import('sqlite')])
   const db = await open({ filename, driver: sqlite3.Database })
   try {
     const managers = await db.all("SELECT id, email FROM users WHERE role = 'Gerente'")
