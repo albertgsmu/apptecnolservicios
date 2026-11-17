@@ -3,7 +3,8 @@ import { io } from 'socket.io-client'
 import { getApiBaseUrl, apiRequest } from '../lib/dataService'
 import type { FieldWorkData } from '../types'
 
-export function useFieldWork(scope: string | null) {
+export function useFieldWork(identity: string | null, orderId?: string) {
+  const scope = identity ? `${identity}:${orderId ?? 'all'}` : null
   const [state, setState] = useState<{ scope: string | null; data: FieldWorkData | null; error: string; loading: boolean }>({ scope: null, data: null, error: '', loading: false })
   const sequence = useRef(0)
   const reload = useCallback(async () => {
@@ -11,10 +12,10 @@ export function useFieldWork(scope: string | null) {
     if (!scope) { setState({ scope, data: null, error: '', loading: false }); return }
     setState(current => ({ scope, data: current.scope === scope ? current.data : null, error: '', loading: true }))
     try {
-      const data = await apiRequest<FieldWorkData>('/field-work')
+      const data = await apiRequest<FieldWorkData>(orderId ? `/field-work?orderId=${encodeURIComponent(orderId)}` : '/field-work')
       if (sequence.current === version) setState({ scope, data, error: '', loading: false })
     } catch (error) { if (sequence.current === version) setState(current => ({ ...current, loading: false, error: error instanceof Error ? error.message : 'No se pudo consultar la jornada.' })) }
-  }, [scope])
+  }, [scope, orderId])
   useEffect(() => {
     let active = true
     const versions = sequence

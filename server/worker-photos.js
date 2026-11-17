@@ -61,11 +61,11 @@ export function registerWorkerPhotos(app, { authRequired, allowRoles, asyncRoute
     if (!photo) return res.status(404).json({ message: 'Foto no encontrada.' })
     res.set({ 'Content-Type': photo.mime_type, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }).send(Buffer.from(photo.content))
   }))
-  return async user => {
+  return async (user, orderId) => {
     const worker = user.role === 'Trabajador', day = workDay()
     const photos = await dbQuery(`SELECT p.id,p.order_id,p.caption,p.latitude,p.longitude,p.accuracy,p.captured_at,p.created_at,p.work_day,e.name AS employee_name,o.client
       FROM worker_photos p JOIN employees e ON e.id=p.employee_id JOIN work_orders o ON o.id=p.order_id
-      ${worker ? 'WHERE p.user_id=$1' : ''} ORDER BY p.created_at DESC,p.id LIMIT 100`, worker ? [user.id] : [])
+      ${worker ? 'WHERE p.user_id=$1' : orderId ? 'WHERE p.order_id=$1' : ''} ORDER BY p.created_at DESC,p.id LIMIT 100`, worker ? [user.id] : orderId ? [orderId] : [])
     const daily = await dbQuery(`SELECT e.id,e.name,COUNT(p.id) AS count FROM employees e JOIN user_employees ue ON ue.employee_id=e.id
       JOIN users u ON u.id=ue.user_id LEFT JOIN worker_photos p ON p.employee_id=e.id AND p.work_day=$1
       WHERE e.status='Activo' AND u.role='Trabajador' ${worker ? 'AND u.id=$2' : ''}

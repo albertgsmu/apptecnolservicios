@@ -10,11 +10,12 @@ type Props = {
   orders: WorkOrder[]; assignees: { id: string; name: string }[]; canWrite: boolean
   canCreate: boolean; canAssign: boolean; canClose: boolean; canDelete: boolean
   onDelete: (id: string, version: number) => Promise<void>
+  onViewRecord?: (id: string) => void
   onLocationSaved: () => void
   onCreate: () => void
   onUpdate: (id: string, payload: { assignedTo: string; progress: number; status: string; version: number }) => Promise<void>
 }
-function OrderCard({ order, assignees, canWrite, canAssign, canClose, canDelete, onUpdate, onLocationSaved, onRequestDelete }: Omit<Props, 'orders' | 'onCreate'> & { order: WorkOrder; onRequestDelete: (order: WorkOrder) => void }) {
+function OrderCard({ order, assignees, canWrite, canAssign, canClose, canDelete, onUpdate, onLocationSaved, onRequestDelete, onViewRecord }: Omit<Props, 'orders' | 'onCreate'> & { order: WorkOrder; onRequestDelete: (order: WorkOrder) => void }) {
   const [draft, setDraft] = useState({ assignedTo: order.assignedTo, progress: order.progress, status: order.status })
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
@@ -28,6 +29,7 @@ function OrderCard({ order, assignees, canWrite, canAssign, canClose, canDelete,
     {canAssign && order.status !== 'Cerrada' && <OrderEvidenceEditor order={order} onSaved={onLocationSaved} />}
     <div className="progress-line"><span style={{ width: `${order.progress}%` }} /></div>
     <div className="order-footer"><span>{order.status}</span><strong>{order.progress}%</strong></div>
+    {onViewRecord && <button className="secondary-button order-record-button" onClick={() => onViewRecord(order.id)}>Ver registro de obra</button>}
     {canWrite && order.status !== 'Cerrada' && <form className="order-editor" onSubmit={async event => {
       event.preventDefault(); setSaving(true); setNotice('')
       try { await onUpdate(order.id, { ...draft, version: order.version }); setNotice('Cambios guardados.') }

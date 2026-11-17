@@ -23,27 +23,31 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
 
   app.get('/api/field-work', authRequired, readers, asyncRoute(async (req, res) => {
     const worker = req.user.role === 'Trabajador'
-    const scope = worker ? ' WHERE r.user_id=$1' : ''
-    const params = worker ? [req.user.id] : []
+    const orderId = req.query.orderId
+    if (orderId !== undefined && (typeof orderId !== 'string' || !orderId || orderId.length > 100)) return res.status(400).json({ message: 'Selecciona una obra válida.' })
+    if (worker && orderId) return res.status(403).json({ message: 'Consulta tus registros desde Mi jornada.' })
+    if (orderId && !await dbGet('SELECT id FROM work_orders WHERE id=$1', [orderId])) return res.status(404).json({ message: 'La obra ya no está disponible.' })
+    const scope = worker ? ' WHERE r.user_id=$1' : orderId ? ' WHERE r.order_id=$1' : ''
+    const params = worker ? [req.user.id] : orderId ? [orderId] : []
     const reports = await dbQuery(`SELECT r.*, e.name AS employee_name, o.client, o.site_details, u.name AS reviewer_name,u.role AS reviewer_role
       FROM worker_reports r JOIN employees e ON e.id=r.employee_id
       JOIN work_orders o ON o.id=r.order_id LEFT JOIN users u ON u.id=r.reviewed_by${scope}
       ORDER BY r.created_at DESC, r.id LIMIT 100`, params)
     const locationAccess = req.user.role === 'Gerente'
-    const checkIns = locationAccess ? await dbQuery(`SELECT r.id,r.order_id,r.kind,r.location_status,r.latitude,r.longitude,r.accuracy,
+    const checkIns = locationAccess ? await dbQuery(`SELECT r.id,r.employee_id,r.order_id,r.kind,r.location_status,r.latitude,r.longitude,r.accuracy,
       r.captured_at,r.notes,r.created_at,e.name AS employee_name,o.client,o.site_details
       FROM worker_check_ins r JOIN employees e ON e.id=r.employee_id
-      LEFT JOIN work_orders o ON o.id=r.order_id${scope} ORDER BY r.created_at DESC,r.id LIMIT 100`, params) : []
+      LEFT JOIN work_orders o ON o.id=r.order_id${orderId ? " WHERE r.order_id=$1 AND r.kind='arrival'" : ''} ORDER BY r.created_at DESC,r.id LIMIT 100`, params) : []
     const totals = await dbGet(`SELECT COUNT(*) AS total,
       COALESCE(SUM(CASE WHEN status <> 'Resuelto' THEN 1 ELSE 0 END),0) AS pending,
       COALESCE(SUM(CASE WHEN status <> 'Resuelto' AND urgency='Crítica' THEN 1 ELSE 0 END),0) AS critical
-      FROM worker_reports${worker ? ' WHERE user_id=$1' : ''}`, params)
+      FROM worker_reports${worker ? ' WHERE user_id=$1' : orderId ? ' WHERE order_id=$1' : ''}`, params)
     const assessments = await readAssessments(dbQuery, checkIns.map(row => row.id))
     const notifications = worker ? await dbQuery('SELECT * FROM worker_report_notifications WHERE user_id=$1 ORDER BY created_at DESC,id LIMIT 100', [req.user.id]) : []
     const unread = worker ? await dbGet('SELECT COUNT(*) AS total FROM worker_report_notifications WHERE user_id=$1 AND read_at IS NULL', [req.user.id]) : { total: 0 }
     res.set('Cache-Control', 'private, no-store')
     return res.json({
-      ...((locationAccess || worker) ? await readPhotos(req.user) : { photos: [], dailyPhotos: { day: new Date().toISOString().slice(0, 10), required: 3, workers: [] } }),
+      ...((locationAccess || worker) ? await readPhotos(req.user, orderId) : { photos: [], dailyPhotos: { day: new Date().toISOString().slice(0, 10), required: 3, workers: [] } }),
       currentOrderId: worker ? await currentWorkerOrder(dbQuery, req.user.id) : null,
       unreadNotifications: Number(unread.total),
       notifications: notifications.map(n => ({ id: n.id, reportId: n.report_id, title: n.title, reply: n.reply, status: n.status, reviewerName: n.reviewer_name, reviewerRole: n.reviewer_role, createdAt: n.created_at, readAt: n.read_at })),
@@ -51,7 +55,7 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
         site: publicSite(row.site_details), category: row.category, urgency: row.urgency, title: row.title,
         details: row.details, materials: JSON.parse(row.material_request || '[]'), requestedAction: row.requested_action, status: row.status, managerReply: row.manager_reply,
         reviewerName: row.reviewer_name, reviewerRole: row.reviewer_role, reviewedAt: row.reviewed_at, createdAt: row.created_at, version: row.version })),
-      checkIns: checkIns.map(row => ({ id: row.id, orderId: row.order_id, employeeName: row.employee_name, client: row.client,
+      checkIns: checkIns.map(row => ({ id: row.id, employeeId: row.employee_id, orderId: row.order_id, employeeName: row.employee_name, client: row.client,
         site: publicSite(row.site_details), kind: row.kind, locationStatus: row.location_status, latitude: row.latitude,
         longitude: row.longitude, accuracy: row.accuracy, capturedAt: row.captured_at, notes: row.notes, createdAt: row.created_at, assessments: assessments.get(row.id) ?? [] })),
       totals: { total: Number(totals.total), pending: Number(totals.pending), critical: Number(totals.critical) }, generatedAt: new Date().toISOString(),

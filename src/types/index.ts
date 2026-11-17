@@ -17,7 +17,7 @@ export type FieldReport = {
 }
 export type WorkerCheckIn = {
   assessments: LocationAssessment[]
-  id: string; orderId: string | null; employeeName: string; client: string | null; site: { address: string; city: string; unit: string }
+  id: string; employeeId: string; orderId: string | null; employeeName: string; client: string | null; site: { address: string; city: string; unit: string }
   kind: string; locationStatus: string; latitude: number | null; longitude: number | null; accuracy: number | null
   capturedAt: string | null; notes: string; createdAt: string
 }

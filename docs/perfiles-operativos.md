@@ -18,6 +18,12 @@ La eliminación general de personas y otros registros independientes sigue pendi
 
 ## Permisos implementados
 
+### Registro por obra
+
+En **Reportes de obra** se busca y abre cada obra; **Órdenes** también ofrece **Ver registro de obra**. El registro reúne **Resumen**, **Llegadas**, **Fotos** y **Reportes**. Gerencia consulta llegadas y fotos agrupadas por día, filtra llegadas por fecha y abre mapa, precisión y distancia con **Ver detalle**. Los registros se consultan por ID de orden, con hasta 100 elementos recientes por categoría; los totales de reportes corresponden a toda esa obra. Las obras cerradas conservan su registro.
+
+Los inicios de sesión permanecen separados en **Accesos de trabajadores**, agrupados por persona. No se presentan como llegadas a la obra. Las ubicaciones obtenidas al enviar fotos se identifican como tales; su comparación usa el radio y la evaluación registrados al momento del envío. Secretarías y Supervisores consultan el resumen y los reportes de cada obra sin recibir fotos ni ubicaciones reservadas a Gerencia.
+
 El sistema admite cuatro perfiles. Solo el Gerente crea cuentas. Los permisos se aplican en la API además de la interfaz, en `shared/access-policy.js`.
 
 | Perfil | Operación disponible |

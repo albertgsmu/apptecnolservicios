@@ -1,32 +1,20 @@
 import { useState } from 'react'
 import { apiRequest } from '../../lib/dataService'
-import type { FieldWorkData, FieldReport, WorkOrder } from '../../types'
+import type { FieldWorkData, WorkOrder } from '../../types'
 import './FieldWork.css'
-import { ArrivalAssessment } from './ArrivalAssessment'
 import { WorkerAssignment } from './WorkerAssignment'
 import { WorkerNotifications } from './WorkerNotifications'
 import { WorkerPhotos } from './WorkerPhotos'
-import { MaterialRequestFields, ReportMaterials } from './MaterialRequestFields'
+import { MaterialRequestFields } from './MaterialRequestFields'
 import { emptyMaterialLine } from './materialRequestDraft'
 
-const fieldTime = (value: string) => new Date(value).toLocaleString('es-CO', { timeZone: 'America/Bogota' })
+import { FieldReportList } from './FieldReportList'
+import { WorkRecords } from './WorkRecords'
 
-function ReportReview({ report, onSaved }: { report: FieldReport; onSaved: () => void }) {
-  const [status, setStatus] = useState(report.status)
-  const [reply, setReply] = useState(report.managerReply)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  return <form className="field-form" onSubmit={async event => {
-    event.preventDefault(); setBusy(true); setError('')
-    try { await apiRequest(`/field-work/reports/${report.id}`, { method: 'PATCH', body: JSON.stringify({ status, reply, version: report.version }) }); onSaved() }
-    catch (error) { setError(error instanceof Error ? error.message : 'No se pudo guardar.') }
-    finally { setBusy(false) }
-  }}><label>Seguimiento<select value={status} onChange={event => setStatus(event.target.value)}>{['Pendiente', 'En atención', 'Resuelto'].map(item => <option key={item}>{item}</option>)}</select></label><label>Respuesta al trabajador<textarea maxLength={2000} value={reply} onChange={event => setReply(event.target.value)} rows={3} /></label>{error && <p role="alert">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Guardando…' : 'Guardar seguimiento'}</button></form>
-}
 
-type Props = { showLocations?: boolean; manager: boolean; orders: WorkOrder[]; data: FieldWorkData | null; reload: () => void }
+type Props = { showLocations?: boolean; manager: boolean; orders: WorkOrder[]; data: FieldWorkData | null; reload: () => void; initialOrderId?: string }
 
-export function FieldWorkPanel({ manager, orders, data, reload, showLocations = true }: Props) {
+export function FieldWorkPanel({ manager, orders, data, reload, showLocations = true, initialOrderId }: Props) {
   const openOrders = orders.filter(order => order.status !== 'Cerrada')
   const currentOrder = orders.find(order => order.id === data?.currentOrderId)
   const [reportNotice, setReportNotice] = useState('')
@@ -34,12 +22,12 @@ export function FieldWorkPanel({ manager, orders, data, reload, showLocations = 
   const [materials, setMaterials] = useState([emptyMaterialLine()])
   const [draft, setDraft] = useState({ category: 'Avance', urgency: 'Normal', title: '', details: '', requestedAction: '' })
 
-return <section className="content-block field-work-panel">
-    {!manager && <WorkerAssignment order={currentOrder} count={openOrders.length} />}
-    {!manager && <WorkerNotifications data={data} reload={reload} />}
-    <div className="section-explanation"><h2>{manager ? 'Reportes del equipo y seguimiento' : 'Mi jornada y reportes'}</h2>{!manager && <p>Comunica los avances, problemas y necesidades del trabajo asignado.</p>}</div>
-    {manager && data && <div className="stats-grid"><div className="panel"><span>Pendientes</span><h3>{data.totals.pending}</h3></div><div className="panel"><span>Críticos</span><h3>{data.totals.critical}</h3></div><div className="panel"><span>Total</span><h3>{data.totals.total}</h3></div></div>}
-    {!manager && <>
+  if (manager) return <WorkRecords orders={orders} data={data} showLocations={showLocations} initialOrderId={initialOrderId} reload={reload} />
+
+  return <section className="content-block field-work-panel">
+    <WorkerAssignment order={currentOrder} count={openOrders.length} />
+    <WorkerNotifications data={data} reload={reload} />
+    <div className="section-explanation"><h2>Mi jornada y reportes</h2><p>Comunica los avances, problemas y necesidades del trabajo asignado.</p></div>
       <form className="panel field-form" onSubmit={async event => {
         event.preventDefault(); setSending(true); setReportNotice('')
         try { await apiRequest('/field-work/reports', { method: 'POST', body: JSON.stringify({ ...draft, orderId: currentOrder?.id, materials: draft.category === 'Solicitud de material' ? materials : [] }) }); setDraft(current => ({ ...current, title: '', details: '', requestedAction: '' })); setMaterials([emptyMaterialLine()]); setReportNotice('Reporte enviado.'); reload() }
@@ -55,14 +43,9 @@ return <section className="content-block field-work-panel">
         <p className="metric-explanation">Enviar un reporte no cierra la orden ni modifica su avance. Si existe un riesgo inmediato, interrumpe la tarea y comunícate directamente con el responsable; este panel no sustituye ese contacto.</p>
         {reportNotice && <p role="status">{reportNotice}</p>}<button className="primary-button" disabled={sending || !currentOrder}>{sending ? 'Enviando…' : 'Enviar'}</button>
       </form>
-    </>}
-    {(!manager || showLocations) && <WorkerPhotos manager={manager} currentOrder={currentOrder} orders={orders} data={data} reload={reload} />}
-    <div className="panel"><h3>{manager ? 'Reportes recibidos' : 'Mis reportes y respuestas'}</h3>{!data?.reports.length && <p>{data ? 'No hay reportes registrados.' : 'Consulta pendiente.'}</p>}
-      <div className="field-report-list">{data?.reports.map(report => <article className="field-report-card" key={`${report.id}-${report.version}`}><div className="panel-header"><h4>{report.title}</h4><span className="status-badge">{report.status} · {report.urgency}</span></div><p><strong>{report.employeeName}</strong> · {report.client} · {report.category}</p><p className="metric-explanation">{fieldTime(report.createdAt)} · Hora de Colombia</p><p className="field-text">{report.details}</p><ReportMaterials materials={report.materials} />{report.requestedAction && <p className="field-text"><strong>Apoyo solicitado: </strong>{report.requestedAction}</p>}{report.managerReply && <div className="field-manager-reply"><strong>Respuesta de {report.reviewerName || 'equipo responsable'}{report.reviewerRole && ` (${report.reviewerRole})`}</strong><p className="field-text">{report.managerReply}</p></div>}{manager && <ReportReview report={report} onSaved={reload} />}</article>)}</div>
-    </div>
-    {manager && showLocations && <div className="panel"><h3>Ubicaciones y llegadas</h3>
-      {!data?.checkIns.length && <p>No hay registros para mostrar.</p>}
-      <ul className="field-location-list">{data?.checkIns.map(item => <li key={item.id}><strong>{item.employeeName} · {item.kind === 'arrival' ? 'Llegada declarada a la obra' : 'Ubicación relacionada con inicio de sesión'}</strong><ArrivalAssessment items={item.assessments} /><p>{item.client || 'Sin obra asociada'} · {fieldTime(item.createdAt)}</p>{item.locationStatus === 'captured' && item.latitude !== null && item.longitude !== null ? <><p>Precisión aproximada: {Math.round(item.accuracy ?? 0)} m · Lectura: {item.capturedAt ? fieldTime(item.capturedAt) : 'Sin hora del dispositivo'}</p><a href={`https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`} target="_blank" rel="noreferrer">Ver ubicación compartida en el mapa ↗</a></> : <p>Sin coordenadas: {item.locationStatus === 'denied' ? 'permiso rechazado' : item.locationStatus === 'timeout' ? 'tiempo de espera agotado' : 'ubicación no disponible'}. No confirma presencia en la obra.</p>}</li>)}</ul>
-    </div>}
+    <WorkerPhotos manager={false} currentOrder={currentOrder} orders={orders} data={data} reload={reload} />
+    <FieldReportList reports={data?.reports ?? []} manager={false} reload={reload} />
+
+
   </section>
 }

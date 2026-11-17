@@ -33,6 +33,7 @@ import type { ApplicantStatus, EmployeeStatus, View } from './types'
 
 function App() {
   const [selectedView, setSelectedView] = useState<View>('dashboard')
+  const [recordOrderId, setRecordOrderId] = useState<string>()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'Todos' | EmployeeStatus>('Todos')
   const [createUserOpen, setCreateUserOpen] = useState(false)
@@ -106,7 +107,7 @@ function App() {
         return <InventorySection key={sessionUser?.email} manager={sessionUser?.role === 'Gerente'} writable={can(sessionUser?.role, 'manageInventory')} />
       case 'my-work':
       case 'field-reports':
-        return <><DataStatus loading={fieldWork.loading} error={fieldWork.error} generatedAt={fieldWork.data?.generatedAt} onRefresh={refreshFieldWork} label="Reportes de obra" actionLabel="Actualizar reportes" /><FieldWorkPanel key={sessionUser?.email} manager={sessionUser?.role !== 'Trabajador'} showLocations={sessionUser?.role === 'Gerente' || sessionUser?.role === 'Trabajador'} orders={orders} data={fieldWork.data} reload={refreshFieldWork} /></>
+        return <><DataStatus loading={fieldWork.loading} error={fieldWork.error} generatedAt={fieldWork.data?.generatedAt} onRefresh={refreshFieldWork} label="Reportes de obra" actionLabel="Actualizar reportes" /><FieldWorkPanel key={`${sessionUser?.email}:${recordOrderId ?? ''}`} initialOrderId={recordOrderId} manager={sessionUser?.role !== 'Trabajador'} showLocations={sessionUser?.role === 'Gerente' || sessionUser?.role === 'Trabajador'} orders={orders} data={fieldWork.data} reload={refreshFieldWork} /></>
       case 'workers':
         return (
           <WorkersSection
@@ -145,7 +146,7 @@ function App() {
         )
 
       case 'orders':
-        return <OrdersSection canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
+        return <OrdersSection onViewRecord={sessionUser?.role !== 'Trabajador' ? id => { setRecordOrderId(id); setSelectedView('field-reports'); window.scrollTo({ top: 0, behavior: 'instant' }) } : undefined} canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
 
       case 'secretary':
         return <SecretarySection orders={orders} error={ordersError} onViewOrders={() => setSelectedView('orders')} />
@@ -162,6 +163,7 @@ function App() {
 
   const visibleMenuItems = sessionUser ? menuItems.filter((item) => (roleViews[sessionUser.role] ?? []).includes(item.key)) : []
   const navigate = (view: View) => {
+    setRecordOrderId(undefined)
     setSelectedView(view)
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
