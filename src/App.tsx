@@ -11,7 +11,6 @@ import { DataStatus } from './components/DataStatus'
 import { useFieldWork } from './hooks/useFieldWork'
 import { FieldWorkPanel } from './features/field-work/FieldWorkPanel'
 import { DashboardSection } from './features/dashboard/DashboardSection'
-import { ContractsSection } from './features/contracts/ContractsSection'
 import { OrdersSection } from './features/orders/OrdersSection'
 import { CreateOrderDialog, type OrderDraft } from './features/orders/CreateOrderDialog'
 import { PersonalSection } from './features/personal/PersonalSection'
@@ -147,9 +146,6 @@ function App() {
 
       case 'orders':
         return <OrdersSection canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
-
-      case 'contracts':
-        return <ContractsSection />
 
       case 'secretary':
         return <SecretarySection orders={orders} error={ordersError} onViewOrders={() => setSelectedView('orders')} />
