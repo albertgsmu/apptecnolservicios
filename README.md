@@ -14,7 +14,7 @@ Los datos locales, archivos subidos y secretos no forman parte del código publi
 
 Proveer un sistema administrativo real con:
 
-- sesiones seguras con cookies HttpOnly y autenticación en dos pasos para Gerente
+- sesiones seguras con cookies HttpOnly y acceso de Gerente con correo y contraseña
 - modelo de negocio por entidades
 - persistencia real en PostgreSQL
 - sincronización en tiempo real con Socket.IO
@@ -80,7 +80,7 @@ Las cuentas nuevas se crean desde **Crear usuario** en el panel, disponible para
 ## Seguridad de acceso
 
 - El servidor resuelve el rol desde la cuenta y comprueba los permisos en cada endpoint. No se confía en un rol enviado por el navegador.
-- La cuenta Gerente requiere contraseña y TOTP. Su secreto MFA se cifra con AES-256-GCM; los códigos de recuperación se guardan como hashes y solo se aceptan una vez.
+- La cuenta Gerente ingresa con correo y contraseña, sin QR ni código de autenticador. TOTP solo se exige si se configura `MANAGER_MFA_REQUIRED=true`; en ese caso, su secreto se cifra con AES-256-GCM y los códigos de recuperación se guardan como hashes de un solo uso.
 - Las contraseñas temporales de Gerente fuerzan cambio antes de continuar. El primer acceso también exige enrolar una app autenticadora.
 - Las sesiones son tokens aleatorios opacos; la base guarda solo su hash. El navegador recibe una cookie `HttpOnly`, `Secure` en producción, y las mutaciones requieren CSRF.
 - Los errores de login no revelan si el correo existe. Los intentos se limitan por IP seudonimizada y se guardan en la base compartida: pausa progresiva hasta 30 segundos y bloqueo de 15 minutos tras 10 fallos. Socket.IO también valida la sesión vigente.
@@ -118,7 +118,7 @@ El backend crea esa cuenta Gerente solo si la tabla de usuarios está vacía. No
 La solución ya incluye:
 
 - frontend profesional modular
-- sesiones opacas con cookies HttpOnly, protección CSRF y TOTP obligatorio para Gerente
+- sesiones opacas con cookies HttpOnly, protección CSRF y TOTP opcional para Gerente
 - API con PostgreSQL y SQLite local explícita
 - creación de cuentas internas desde el panel del Gerente
 - esquema de dominio Prisma preparado; la API actual usa consultas SQL directas

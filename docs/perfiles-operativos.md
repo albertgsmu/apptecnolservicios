@@ -1,5 +1,19 @@
 # Perfiles operativos
 
+## Uso principal en celular
+
+La aplicación se manejará principalmente desde celulares. Los cambios de interfaz de todos los perfiles deben priorizar pantallas pequeñas y uso táctil: navegación sencilla, botones fáciles de tocar, formularios legibles y contenido sin desbordamiento horizontal. Las funciones de cámara, archivos y ubicación deben funcionar desde el navegador móvil y explicar los permisos cuando sean necesarios. El acceso desde computador también debe conservarse.
+
+Las acciones de eliminación del Gerente deben ser accesibles desde el celular, con confirmación clara antes de borrar y mensajes que indiquen si la operación se completó o falló.
+
+## Requisito de eliminación del Gerente
+
+El Gerente debe poder eliminar personas (personal, candidatos y cuentas), reportes, trabajos u órdenes y los demás registros operativos de la aplicación. La interfaz debe ofrecer estas acciones al Gerente y la API debe comprobar el permiso en cada solicitud. Este requisito no concede permisos de eliminación a otros perfiles.
+
+Estado: pendiente de implementación. Las rutas actuales no ofrecen la eliminación general de estos registros. Registrar este requisito no elimina datos existentes.
+
+## Permisos implementados
+
 El sistema admite cuatro perfiles. Solo el Gerente crea cuentas. Los permisos se aplican en la API además de la interfaz, en `shared/access-policy.js`.
 
 | Perfil | Operación disponible |

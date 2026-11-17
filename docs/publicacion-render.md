@@ -20,7 +20,7 @@ El Blueprint establece Node 24, `NODE_ENV=production`, `SERVE_FRONTEND=true` y `
 
 Tras finalizar el despliegue, usa la URL HTTPS que devuelva Render. Debe abrir el acceso y responder en `/api/health` con `ok: true` y `database: postgres`. Prueba el acceso del gerente, una cuenta de trabajador, autorización de ubicación, envío de foto y respuesta a un reporte. Las cookies, la API, los adjuntos y las notificaciones funcionan en ese mismo origen. El computador local puede apagarse.
 
-En producción el Gerente debe configurar su autenticador; el modo opcional local no desactiva esa protección. La base debe tener preparada la migración de autenticación. No se ejecuta `db:reset`, `prisma db push` ni un borrado de datos durante el despliegue. Si falta el esquema, corrígelo primero en la rama de pruebas verificada.
+El Gerente ingresa con correo y contraseña, sin autenticador. El Blueprint configura `MANAGER_MFA_REQUIRED=false`; un servicio existente debe usar ese mismo valor o dejar la variable sin configurar. La base debe tener preparada la migración de autenticación. No se ejecuta `db:reset`, `prisma db push` ni un borrado de datos durante el despliegue. Si falta el esquema, corrígelo primero en la rama de pruebas verificada.
 
 El plan gratuito puede suspender el servicio por inactividad y tardar en reactivarse; no es una garantía de disponibilidad permanente. No se añade un plan de pago automáticamente. Límites y comportamiento: [Render Free](https://render.com/docs/free). Los archivos permanentes están en Neon, no en el disco temporal del servicio.
 
