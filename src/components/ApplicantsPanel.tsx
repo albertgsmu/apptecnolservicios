@@ -50,13 +50,14 @@ export function ApplicantsPanel({
       <div className="panel-header">
         <div>
           <p className="eyebrow">Reclutamiento</p>
-          <h2>Solicitudes de ingreso y autorización</h2>
+          <h2>Candidatos</h2>
         </div>
       </div>
 
       <div className="filters-toolbar">
         <input
           type="search"
+          aria-label="Buscar candidatos"
           placeholder="Buscar solicitante"
           value={searchApplicant}
           onChange={(event) => onSearchChange(event.target.value)}

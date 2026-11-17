@@ -4,7 +4,7 @@ import { InventorySection } from './features/inventory/InventorySection'
 import { ApplicantsPanel } from './components/ApplicantsPanel'
 import { BrandMark } from './components/BrandMark'
 import { LoginScreen } from './components/LoginScreen'
-import { WorkersSection } from './components/WorkersSection'
+import { WorkersHub } from './components/WorkersHub'
 import { menuItems } from './constants/navigation'
 import { useOverview } from './hooks/useOverview'
 import { DataStatus } from './components/DataStatus'
@@ -13,7 +13,6 @@ import { FieldWorkPanel } from './features/field-work/FieldWorkPanel'
 import { DashboardSection } from './features/dashboard/DashboardSection'
 import { OrdersSection } from './features/orders/OrdersSection'
 import { CreateOrderDialog, type OrderDraft } from './features/orders/CreateOrderDialog'
-import { PersonalSection } from './features/personal/PersonalSection'
 import { ReportsSection } from './features/reports/ReportsSection'
 import { SecretarySection } from './features/secretary/SecretarySection'
 import { roleViews } from './constants/roles'
@@ -25,7 +24,7 @@ import { CreateUserDialog } from './components/CreateUserDialog'
 import { MobileNavigation } from './components/MobileNavigation'
 import './mobile.css'
 import { can } from '../shared/access-policy.js'
-import type { ApplicantStatus, EmployeeStatus, View } from './types'
+import type { ApplicantStatus, EmployeeStatus, ManagedRole, View } from './types'
 
 
 
@@ -37,6 +36,8 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'Todos' | EmployeeStatus>('Todos')
   const [createUserOpen, setCreateUserOpen] = useState(false)
+  const [createUserRole, setCreateUserRole] = useState<ManagedRole>('Secretaria')
+  const openCreateUser = (role: ManagedRole = 'Secretaria') => { setCreateUserRole(role); setCreateUserOpen(true) }
   const closeCreateUser = useCallback(() => setCreateUserOpen(false), [])
   const [newOrderOpen, setNewOrderOpen] = useState(false)
   const closeNewOrder = useCallback(() => setNewOrderOpen(false), [])
@@ -109,41 +110,15 @@ function App() {
       case 'field-reports':
         return <><DataStatus loading={fieldWork.loading} error={fieldWork.error} generatedAt={fieldWork.data?.generatedAt} onRefresh={refreshFieldWork} label="Reportes de obra" actionLabel="Actualizar reportes" /><FieldWorkPanel key={`${sessionUser?.email}:${recordOrderId ?? ''}`} initialOrderId={recordOrderId} manager={sessionUser?.role !== 'Trabajador'} showLocations={sessionUser?.role === 'Gerente' || sessionUser?.role === 'Trabajador'} orders={orders} data={fieldWork.data} reload={refreshFieldWork} /></>
       case 'workers':
-        return (
-          <WorkersSection
-            searchTerm={searchTerm}
-            statusFilter={statusFilter}
-            onSearchChange={setSearchTerm}
-            onStatusChange={(value) => setStatusFilter(value)}
-            onUpdateStatus={handleEmployeeStatusChange}
-            canManageEmployees={can(sessionUser?.role, 'manageEmployees')}
-            employees={employees}
-            orders={orders}
-            ordersError={ordersError}
-            employeeLoading={employeeLoading}
-            employeeError={employeeError}
-          />
-        )
-
-      case 'personal':
-        return (
-          <PersonalSection
-            data={overview}
-            applicants={(
-              <ApplicantsPanel
-                applicants={applicants}
-                searchApplicant={searchApplicant}
-                applicantFilter={applicantFilter}
-                isLoadingData={isLoadingData}
-                loadError={loadError}
-                onSearchChange={setSearchApplicant}
-                onFilterChange={(value) => setApplicantFilter(value)}
-                onApplicantDecision={handleApplicantDecision}
-                canDecide={can(sessionUser?.role, 'decideApplicants')}
-              />
-            )}
-          />
-        )
+        return <WorkersHub key={sessionUser?.email} canReadEmployees={canReadEmployees} data={overview} fieldWork={fieldWork.data}
+          onCreateWorker={can(sessionUser?.role, 'manageUsers') ? () => openCreateUser('Trabajador') : undefined}
+          employeeProps={{ searchTerm, statusFilter, onSearchChange: setSearchTerm, onStatusChange: setStatusFilter,
+            onUpdateStatus: handleEmployeeStatusChange, canManageEmployees: can(sessionUser?.role, 'manageEmployees'),
+            employees, orders, ordersError, employeeLoading, employeeError }}
+          applicants={<ApplicantsPanel applicants={applicants} searchApplicant={searchApplicant} applicantFilter={applicantFilter}
+            isLoadingData={isLoadingData} loadError={loadError} onSearchChange={setSearchApplicant} onFilterChange={setApplicantFilter}
+            onApplicantDecision={handleApplicantDecision} canDecide={can(sessionUser?.role, 'decideApplicants')} />}
+        />
 
       case 'orders':
         return <OrdersSection onViewRecord={sessionUser?.role !== 'Trabajador' ? id => { setRecordOrderId(id); setSelectedView('field-reports'); window.scrollTo({ top: 0, behavior: 'instant' }) } : undefined} canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
@@ -191,7 +166,7 @@ function App() {
 
   return (
     <div className="admin-shell" data-view={activeView}>
-      <MobileNavigation items={visibleMenuItems} activeView={activeView} role={sessionUser!.role} name={sessionUser!.name} onNavigate={navigate} onLogout={handleLogout} onCreateUser={sessionUser?.role === 'Gerente' ? () => setCreateUserOpen(true) : undefined} />
+      <MobileNavigation items={visibleMenuItems} activeView={activeView} role={sessionUser!.role} name={sessionUser!.name} onNavigate={navigate} onLogout={handleLogout} onCreateUser={sessionUser?.role === 'Gerente' ? () => openCreateUser() : undefined} />
       <aside className="sidebar">
         <div className="brand-block">
           <div className="brand-logo">
@@ -252,7 +227,7 @@ function App() {
                 type="button"
                 className="ghost-button"
                 onClick={() => {
-                  setCreateUserOpen(true)
+                  openCreateUser()
                 }}
               >
                 Crear usuario
@@ -263,7 +238,7 @@ function App() {
           </div>
         </header>
 
-        {createUserOpen && sessionUser?.role === 'Gerente' && <CreateUserDialog onClose={closeCreateUser} onCreated={refreshCompanyData} />}
+        {createUserOpen && sessionUser?.role === 'Gerente' && <CreateUserDialog initialRole={createUserRole} onClose={closeCreateUser} onCreated={refreshCompanyData} />}
 
         {newOrderOpen && canWriteOrders && (
           <CreateOrderDialog assignees={assignees} canAssign={canManageOrders} onClose={closeNewOrder} onCreate={handleCreateOrder} />

@@ -4,12 +4,12 @@ import { apiRequest, createUser } from '../lib/dataService'
 import type { ManagedRole } from '../types'
 
 type EmployeeOption = { id: string; name: string; area: string }
-type Props = { onClose: () => void; onCreated: () => void }
+type Props = { onClose: () => void; onCreated: () => void; initialRole?: ManagedRole }
 const emptyDraft = { name: '', email: '', password: '', confirmPassword: '', employeeId: '' }
 
-export function CreateUserDialog({ onClose, onCreated }: Props) {
+export function CreateUserDialog({ onClose, onCreated, initialRole = 'Secretaria' }: Props) {
   const [draft, setDraft] = useState(emptyDraft)
-  const [role, setRole] = useState<ManagedRole>('Secretaria')
+  const [role, setRole] = useState<ManagedRole>(initialRole)
   const [employeeMode, setEmployeeMode] = useState<'new' | 'existing'>('new')
   const [employeeDetails, setEmployeeDetails] = useState({ area: '', title: '', shift: 'Diurno' })
   const [employees, setEmployees] = useState<EmployeeOption[]>([])

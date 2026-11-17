@@ -76,6 +76,8 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await waitFor(async () => (await fetch(`http://127.0.0.1:${apiPort}/api/health`)).ok, 'API start')
   const fixture = await open({ filename: databasePath, driver: sqlite3.Database })
   await fixture.run("INSERT INTO employees (id,name,area,title,status,shift,lastEntry) VALUES ('browser-tech','Tecnico de prueba','Electricidad','Tecnico','Activo','Dia','')")
+  await fixture.run(`INSERT INTO applicants (id,"fullName",email,phone,"birthDate",gender,address,city,"identityNumber",education,area,experience,availability,"emergencyContact","emergencyPhone",status,"createdAt")
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, ['browser-applicant', 'Candidato de prueba', 'candidate.browser@example.test', '3000000000', '1990-01-01', 'Sin especificar', 'Dirección de prueba', 'Bogotá', 'candidate-test-id', 'Técnica', 'Electricidad', 'Dos años', 'Inmediata', 'Contacto', '3000000001', 'Pendiente', new Date().toISOString()])
   await fixture.close()
 
   const executable = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe'
@@ -189,11 +191,23 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await click('Crear cuenta con este perfil')
   await see('ya tiene acceso')
   await click('Volver al panel')
-  for (const [label, heading] of [['Trabajadores', 'Trabajadores y estructura operativa'], ['Personal', 'Asistencia semanal'], ['Órdenes', 'Órdenes de trabajo y seguimiento'], ['Secretaría', 'Agenda del gerente'], ['Reportes', 'Reportes y exportación'], ['Dashboard', 'Seguimiento de órdenes']]) {
+  for (const [label, heading] of [['Trabajadores', 'Trabajadores y estructura operativa'], ['Órdenes', 'Órdenes de trabajo y seguimiento'], ['Secretaría', 'Agenda del gerente'], ['Reportes', 'Reportes y exportación'], ['Dashboard', 'Seguimiento de órdenes']]) {
     await click(label)
     await waitFor(() => evaluate(`[...document.querySelectorAll('main h2')].some(el => el.textContent === ${JSON.stringify(heading)})`), heading)
     assert.ok(await evaluate("document.querySelector('.admin-shell') !== null"))
   }
+  await click('Trabajadores')
+  assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(button => button.textContent.trim() === 'Personal')"), false, 'Only Trabajadores remains in the menu')
+  await click('Nuevo trabajador')
+  await see('Perfil y responsabilidades')
+  assert.ok(await evaluate("document.querySelector('input[name=\"new-user-role\"][value=\"Trabajador\"]').checked"), 'New worker starts with the correct role')
+  await evaluate("document.querySelector('button[aria-label=\"Cerrar creación de usuario\"]').click()")
+  const workerTab = label => evaluate(`[...document.querySelectorAll('.workers-hub-tabs button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`)
+  await workerTab('Candidatos')
+  await see('Candidato de prueba')
+  await click('Autorizar')
+  await waitFor(() => evaluate("Boolean(document.querySelector('.applicant-card .status-pill.aprobado'))"), 'Candidate approval works inside Trabajadores')
+  await click('Dashboard')
   await click('Nueva orden')
   await see('Información del servicio')
   await click('Crear orden')
@@ -267,11 +281,11 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   for (const width of [320, 390, 430, 768]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
     assert.ok(await evaluate("document.querySelector('.sidebar').getBoundingClientRect().width === 0"), 'Desktop sidebar is replaced on phones and tablets')
-    for (const [view, heading] of [['dashboard', 'Seguimiento de órdenes'], ['workers', 'Trabajadores y estructura operativa'], ['personal', 'Asistencia semanal'], ['orders', 'Órdenes de trabajo y seguimiento'], ['field-reports', 'Reportes'], ['inventory', 'Bodega'], ['secretary', 'Agenda del gerente'], ['reports', 'Reportes y exportación']]) {
+    for (const [view, heading] of [['dashboard', 'Seguimiento de órdenes'], ['workers', 'Trabajadores y estructura operativa'], ['orders', 'Órdenes de trabajo y seguimiento'], ['field-reports', 'Reportes'], ['inventory', 'Bodega'], ['secretary', 'Agenda del gerente'], ['reports', 'Reportes y exportación']]) {
       await evaluate("document.querySelector('.mobile-menu-trigger').click()")
       await waitFor(() => evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), 'Mobile menu opens')
       assert.ok(await evaluate("document.querySelector('.mobile-menu-sheet').contains(document.activeElement)"), 'Menu receives keyboard focus')
-      await evaluate(`document.querySelectorAll('.mobile-menu-item')[${['dashboard', 'workers', 'personal', 'orders', 'field-reports', 'inventory', 'secretary', 'reports'].indexOf(view)}].click()`)
+      await evaluate(`document.querySelectorAll('.mobile-menu-item')[${['dashboard', 'workers', 'orders', 'field-reports', 'inventory', 'secretary', 'reports'].indexOf(view)}].click()`)
       await see(heading)
       assert.equal(await evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), false, 'Menu closes after navigation')
       const overflow = await evaluate(`({width: window.innerWidth, scroll: document.documentElement.scrollWidth, elements: [...document.querySelectorAll('main *')].filter(el => el.getBoundingClientRect().right > window.innerWidth + 1 && el.getBoundingClientRect().width > 0).map(el => el.className || el.tagName).slice(0,8)})`)
@@ -280,6 +294,13 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
       if (width === 390 && ['dashboard', 'orders', 'workers'].includes(view)) {
         const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
         await writeFile(path.resolve(`.local-secrets/gerente-movil-${view}.png`), Buffer.from(shot.data, 'base64'))
+      }
+      if (view === 'workers') {
+        for (const [tab, heading] of [['Candidatos', 'Candidato de prueba'], ['Resumen', 'Carga de trabajo'], ['Accesos', 'Accesos por trabajador'], ['Equipo', 'Trabajadores y estructura operativa']]) {
+          await workerTab(tab)
+          await see(heading)
+          assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), `Workers ${tab} fits ${width}px`)
+        }
       }
     }
     await evaluate("document.querySelector('.mobile-bottom-nav button').click()")
@@ -361,7 +382,13 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await evaluate("document.querySelector('.login-form').requestSubmit()")
   await see('Resumen de la empresa')
   assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Crear usuario')"), false)
-  assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(el => ['Contratos','Reportes','Trabajadores'].includes(el.textContent.trim()))"), false)
+  assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(el => ['Contratos','Reportes','Personal'].includes(el.textContent.trim()))"), false)
+  await click('Trabajadores')
+  await see('Candidatos')
+  assert.equal(await evaluate("document.querySelector('.worker-directory') !== null"), false, 'Secretary cannot see employee records in the unified section')
+  assert.equal(await evaluate("document.querySelector('.workers-hub-tabs') !== null"), false, 'Secretary cannot access manager tabs')
+  assert.equal(await evaluate("document.querySelector('.applicant-actions') !== null"), false, 'Secretary cannot approve candidates')
+  assert.equal(await evaluate("[...document.querySelectorAll('button')].some(button => button.textContent === 'Nuevo trabajador')"), false)
   await click('Órdenes')
   await see('Cliente navegador')
   assert.equal(await evaluate("document.querySelectorAll('.order-editor').length"), 0)

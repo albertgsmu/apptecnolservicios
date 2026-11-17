@@ -52,7 +52,7 @@ function PhotoRecords({ data, orderId, showLocations }: { data: FieldWorkData; o
   </section>
 }
 
-function AccessRecords({ checkIns }: { checkIns: WorkerCheckIn[] }) {
+export function AccessRecords({ checkIns }: { checkIns: WorkerCheckIn[] }) {
   const groups = groupBy(checkIns.filter(item => item.kind === 'login'), item => item.employeeId)
   return <section className="panel worker-access-records"><h3>Accesos por trabajador</h3><p className="metric-explanation">Últimos 100 registros · El inicio de sesión no confirma una llegada.</p>
     {!groups.size && <p>No hay accesos registrados.</p>}

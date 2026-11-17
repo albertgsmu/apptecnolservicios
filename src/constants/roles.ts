@@ -9,8 +9,8 @@ export const roleDisplayNames: Record<Role, string> = {
 }
 
 export const roleViews: Record<Role, View[]> = {
-  Gerente: ['inventory', 'dashboard', 'workers', 'personal', 'orders', 'field-reports', 'secretary', 'reports'],
-  Secretaria: ['dashboard', 'inventory', 'personal', 'orders', 'field-reports', 'secretary'],
+  Gerente: ['inventory', 'dashboard', 'workers', 'orders', 'field-reports', 'secretary', 'reports'],
+  Secretaria: ['dashboard', 'inventory', 'workers', 'orders', 'field-reports', 'secretary'],
   Supervisor: ['dashboard', 'inventory', 'orders', 'field-reports'],
   Trabajador: ['my-work', 'orders', 'field-reports'],
 }
