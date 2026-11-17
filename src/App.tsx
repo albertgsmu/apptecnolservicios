@@ -47,7 +47,7 @@ function App() {
   const canWriteOrders = can(sessionUser?.role, 'createOrders')
   const canManageOrders = can(sessionUser?.role, 'manageOrders')
   const canUpdateOrders = can(sessionUser?.role, 'updateOrders')
-  const { orders, assignees, error: ordersError, loading: ordersLoading, reload: reloadOrders, create: createOrder, update: updateOrder } = useOrders(isLoggedIn, canManageOrders)
+  const { orders, assignees, error: ordersError, loading: ordersLoading, reload: reloadOrders, create: createOrder, update: updateOrder, remove: deleteOrder } = useOrders(isLoggedIn, canManageOrders)
   const { applicants, isLoadingData, loadError, decideApplicant } = useApplicants(isLoggedIn && can(sessionUser?.role, 'readApplicants'))
   const canReadEmployees = can(sessionUser?.role, 'readEmployees')
   const { employees, updateEmployeeStatus, loading: employeeLoading, error: employeeError, reload: reloadEmployees } = useEmployees(isLoggedIn && canReadEmployees)
@@ -146,7 +146,7 @@ function App() {
         )
 
       case 'orders':
-        return <OrdersSection canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
+        return <OrdersSection canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
 
       case 'contracts':
         return <ContractsSection />

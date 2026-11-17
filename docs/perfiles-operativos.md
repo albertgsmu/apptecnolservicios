@@ -12,7 +12,9 @@ El panel incorpora cabecera compacta, barra inferior con Inicio, Órdenes, Repor
 
 El Gerente debe poder eliminar personas (personal, candidatos y cuentas), reportes, trabajos u órdenes y los demás registros operativos de la aplicación. La interfaz debe ofrecer estas acciones al Gerente y la API debe comprobar el permiso en cada solicitud. Este requisito no concede permisos de eliminación a otros perfiles.
 
-Estado: pendiente de implementación. Las rutas actuales no ofrecen la eliminación general de estos registros. Registrar este requisito no elimina datos existentes.
+Implementado para órdenes: en **Órdenes**, el Gerente puede tocar **Borrar orden** al final de la ficha y confirmar o cancelar. Incluye órdenes cerradas. El borrado elimina archivos, fotos, reportes de obra y notificaciones asociados; exige la versión vigente y conserva una auditoría. Si hay herramientas o materiales pendientes, devuelve un aviso para resolverlos primero en Bodega. Los movimientos de inventario conservan su responsable, fecha y referencia textual a la orden eliminada. La API limita esta acción al Gerente y exige sesión y CSRF.
+
+La eliminación general de personas y otros registros independientes sigue pendiente. Agregar estos permisos no elimina datos existentes durante el despliegue.
 
 ## Permisos implementados
 

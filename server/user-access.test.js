@@ -417,5 +417,33 @@ test('only manager creates accounts; worker sees and updates only own orders; se
     assert.equal(history.body.filter(m => m.action === 'Préstamo').length, 1)
     assert.equal(history.body.find(m => m.action === 'Devolución con daño').employeeName, 'tech-own')
     assert.ok(history.body.every(m => m.actorName && m.createdAt))
+    const deletionVersion = (await manager('/orders')).body.find(order => order.id === own.body.id).version
+    for (const request of [secretary, supervisor, workerRequest]) {
+      assert.equal((await request(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion })).status, 403, 'Only Gerente may delete an order')
+    }
+    assert.equal((await client()(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion })).status, 401)
+    assert.equal((await manager(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion }, { 'X-CSRF-Token': '' })).status, 403)
+    assert.equal((await manager(`/orders/${own.body.id}`, 'DELETE', {})).status, 400)
+    assert.equal((await manager(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion - 1 })).status, 409, 'Do not delete a changed order')
+    const pendingDeletion = await manager(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion })
+    assert.equal(pendingDeletion.status, 409, JSON.stringify(pendingDeletion.body))
+    assert.ok(await db.get('SELECT id FROM worker_reports WHERE id=?', [fieldReportId]), 'Rejected delete preserves reports')
+    assert.equal((await manager(ownUrl)).status, 200, 'Rejected delete preserves media')
+    assert.equal((await move(supervisor, material.body.id, 'Retorno a bodega', { quantity: 2.5, employeeId: 'tech-own', orderId: own.body.id })).status, 200)
+    const movementsBefore = (await db.get('SELECT COUNT(*) AS total FROM inventory_movements')).total
+    const removed = await manager(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion })
+    assert.equal(removed.status, 200, JSON.stringify(removed.body))
+    for (const table of ['work_orders', 'order_attachments', 'worker_reports', 'worker_photos', 'worker_check_ins', 'inventory_allocations']) {
+      const column = table === 'work_orders' ? 'id' : 'order_id'
+      assert.equal((await db.get(`SELECT COUNT(*) AS total FROM ${table} WHERE ${column}=?`, [own.body.id])).total, 0, `${table} cleaned up`)
+    }
+    assert.equal((await manager(ownUrl)).status, 404, 'Deleted attachments are inaccessible')
+    assert.equal((await db.get('SELECT COUNT(*) AS total FROM inventory_movements')).total, movementsBefore, 'Stock history is retained')
+    assert.ok((await manager(`/inventory/${tool.body.id}/history`)).body.some(m => m.notes.includes(`Orden eliminada: ${own.body.id}`)))
+    assert.equal((await db.get('SELECT COUNT(*) AS total FROM security_events WHERE event=?', [`order_deleted:${own.body.id}`])).total, 1)
+    assert.equal((await manager(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion })).status, 404)
+    assert.equal((await manager(`/orders/${closed.body.id}`, 'DELETE', { version: 2 })).status, 200, 'Closed orders can be deleted')
+    assert.equal((await manager(`/orders/${legacyOrder.body.id}`, 'DELETE', { version: legacyOrder.body.version })).status, 200)
+    await assert.rejects(readFile(legacyPath), { code: 'ENOENT' }, 'Legacy disk attachment is removed after commit')
   } finally { await db.close() }
 })

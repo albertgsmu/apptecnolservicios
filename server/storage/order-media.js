@@ -103,5 +103,12 @@ export function createOrderMediaStorage(env = process.env) {
     return { migrated, missing }
   }
 
-  return { middleware, persist, cleanupAfter, filePath, importLegacy }
+  const removeFiles = async keys => {
+    for (const key of keys) {
+      try { await unlink(filePath(key)) }
+      catch (error) { if (error.code !== 'ENOENT') console.error('No se pudo limpiar un adjunto de una orden eliminada:', error.code ?? 'invalid-key') }
+    }
+  }
+
+  return { middleware, persist, cleanupAfter, filePath, importLegacy, removeFiles }
 }

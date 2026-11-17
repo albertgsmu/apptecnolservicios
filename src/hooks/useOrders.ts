@@ -49,5 +49,12 @@ export function useOrders(enabled: boolean, canWrite: boolean) {
     const order = await apiRequest<WorkOrder>(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
     setOrders(current => current.map(item => item.id === id ? order : item))
   }
-  return { orders: enabled ? orders : [], assignees, error, loading, reload, create, update }
+  const remove = async (id: string, version: number) => {
+    await apiRequest(`/orders/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ version }) })
+    // Ignore any older in-flight refresh that still contains the deleted order.
+    requestId.current++
+    setLoading(false)
+    setOrders(current => current.filter(item => item.id !== id))
+  }
+  return { orders: enabled ? orders : [], assignees, error, loading, reload, create, update, remove }
 }

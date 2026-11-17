@@ -6,6 +6,7 @@ export const permissionRoles = Object.freeze({
   createOrders: ['Gerente', 'Secretaria', 'Supervisor'],
   manageOrders: ['Gerente', 'Supervisor'],
   closeOrders: ['Gerente'],
+  deleteOrders: ['Gerente'],
   updateOrders: ['Gerente', 'Supervisor', 'Trabajador'],
   readOrders: ['Gerente', 'Secretaria', 'Supervisor', 'Trabajador'],
   readFieldReports: ['Gerente', 'Secretaria', 'Supervisor', 'Trabajador'],

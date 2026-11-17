@@ -28,6 +28,42 @@ const serialize = (row) => ({
 export function registerOrders(app, { dbRun, dbGet, dbQuery, authRequired, allowRoles, asyncRoute, withTransaction, mediaStorage }) {
   const writers = allowRoles(...permissionRoles.manageOrders)
   const readers = allowRoles(...permissionRoles.readOrders)
+  app.delete('/api/orders/:id', authRequired, allowRoles(...permissionRoles.deleteOrders), asyncRoute(async (req, res) => {
+    const { version } = req.body ?? {}
+    if (!Number.isInteger(version) || version < 1) return res.status(400).json({ message: 'Actualiza las órdenes antes de borrar.' })
+    const files = await dbQuery('SELECT storage_key FROM order_attachments WHERE order_id=$1', [req.params.id])
+    try {
+      const result = await withTransaction(async tx => {
+        // Lock the version displayed in the confirmation before changing related records.
+        const locked = await tx.run('UPDATE work_orders SET version=version WHERE id=$1 AND version=$2', [req.params.id, version])
+        if ((locked.rowCount ?? locked.changes) !== 1) {
+          const exists = await tx.get('SELECT id FROM work_orders WHERE id=$1', [req.params.id])
+          return { status: exists ? 409 : 404, message: exists ? 'La orden cambió. Actualiza los datos y vuelve a confirmar.' : 'La orden ya no existe. Actualiza las órdenes.' }
+        }
+        const order = await tx.get('SELECT id,client FROM work_orders WHERE id=$1', [req.params.id])
+        const outstanding = await tx.get(`SELECT id FROM inventory_items WHERE order_id=$1
+          UNION ALL SELECT id FROM inventory_allocations WHERE order_id=$1 AND quantity > 0 LIMIT 1`, [order.id])
+        if (outstanding) return { status: 409, message: 'Esta orden tiene herramientas o materiales pendientes. Registra la devolución o el consumo en Bodega antes de borrarla.' }
+        // Keep stock accounting and its actor/date history after the work order is removed.
+        await tx.run('UPDATE inventory_movements SET order_id=NULL,notes=notes || $1 WHERE order_id=$2', [`\nOrden eliminada: ${order.id} · ${order.client}`, order.id])
+        await tx.run('DELETE FROM inventory_allocations WHERE order_id=$1', [order.id])
+        await tx.run('DELETE FROM worker_report_notifications WHERE report_id IN (SELECT id FROM worker_reports WHERE order_id=$1)', [order.id])
+        await tx.run('DELETE FROM location_assessments WHERE event_id IN (SELECT id FROM worker_photos WHERE order_id=$1 UNION ALL SELECT id FROM worker_check_ins WHERE order_id=$1)', [order.id])
+        await tx.run('DELETE FROM worker_reports WHERE order_id=$1', [order.id])
+        await tx.run('DELETE FROM worker_photos WHERE order_id=$1', [order.id])
+        await tx.run('DELETE FROM worker_check_ins WHERE order_id=$1', [order.id])
+        await tx.run('DELETE FROM order_attachments WHERE order_id=$1', [order.id])
+        await tx.run('DELETE FROM work_orders WHERE id=$1 AND version=$2', [order.id, version])
+        await tx.run('INSERT INTO security_events (id,user_id,event,created_at) VALUES ($1,$2,$3,$4)', [randomUUID(), req.user.id, `order_deleted:${order.id}`, new Date().toISOString()])
+        return { status: 200, message: 'Orden borrada correctamente.' }
+      })
+      if (result.status === 200) await mediaStorage.removeFiles(files.map(file => file.storage_key))
+      return res.status(result.status).json({ message: result.message })
+    } catch (error) {
+      if (error.code === '23503' || String(error.message).includes('FOREIGN KEY constraint failed')) return res.status(409).json({ message: 'La orden recibió registros relacionados mientras se borraba. Actualiza los datos y vuelve a intentar.' })
+      throw error
+    }
+  }))
   app.post('/api/orders/:id/evidence', authRequired, writers, mediaStorage.middleware, asyncRoute(mediaStorage.cleanupAfter(async (req, res) => {
     const { version, observations } = req.body ?? {}
     if (!Number.isInteger(version) || typeof observations !== 'string' || observations.length > 4000) return res.status(400).json({ message: 'Revisa las instrucciones de trabajo y la versión de la orden.' })
