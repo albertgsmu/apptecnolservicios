@@ -191,13 +191,14 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await click('Crear cuenta con este perfil')
   await see('ya tiene acceso')
   await click('Volver al panel')
-  for (const [label, heading] of [['Trabajadores', 'Trabajadores y estructura operativa'], ['Órdenes', 'Órdenes de trabajo y seguimiento'], ['Secretaría', 'Agenda del gerente'], ['Reportes', 'Reportes y exportación'], ['Dashboard', 'Seguimiento de órdenes']]) {
+  for (const [label, heading] of [['Trabajadores', 'Trabajadores y estructura operativa'], ['Órdenes', 'Órdenes de trabajo y seguimiento'], ['Reportes', 'Reportes y exportación'], ['Dashboard', 'Seguimiento de órdenes']]) {
     await click(label)
     await waitFor(() => evaluate(`[...document.querySelectorAll('main h2')].some(el => el.textContent === ${JSON.stringify(heading)})`), heading)
     assert.ok(await evaluate("document.querySelector('.admin-shell') !== null"))
   }
   await click('Trabajadores')
   assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(button => button.textContent.trim() === 'Personal')"), false, 'Only Trabajadores remains in the menu')
+  assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(button => ['Secretaría', 'Agenda'].includes(button.textContent.trim()))"), false, 'Manager has no duplicate secretary section')
   await click('Nuevo trabajador')
   await see('Perfil y responsabilidades')
   assert.ok(await evaluate("document.querySelector('input[name=\"new-user-role\"][value=\"Trabajador\"]').checked"), 'New worker starts with the correct role')
@@ -281,11 +282,12 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   for (const width of [320, 390, 430, 768]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
     assert.ok(await evaluate("document.querySelector('.sidebar').getBoundingClientRect().width === 0"), 'Desktop sidebar is replaced on phones and tablets')
-    for (const [view, heading] of [['dashboard', 'Seguimiento de órdenes'], ['workers', 'Trabajadores y estructura operativa'], ['orders', 'Órdenes de trabajo y seguimiento'], ['field-reports', 'Reportes'], ['inventory', 'Bodega'], ['secretary', 'Agenda del gerente'], ['reports', 'Reportes y exportación']]) {
+    for (const [view, heading] of [['dashboard', 'Seguimiento de órdenes'], ['workers', 'Trabajadores y estructura operativa'], ['orders', 'Órdenes de trabajo y seguimiento'], ['field-reports', 'Reportes'], ['inventory', 'Bodega'], ['reports', 'Reportes y exportación']]) {
       await evaluate("document.querySelector('.mobile-menu-trigger').click()")
       await waitFor(() => evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), 'Mobile menu opens')
       assert.ok(await evaluate("document.querySelector('.mobile-menu-sheet').contains(document.activeElement)"), 'Menu receives keyboard focus')
-      await evaluate(`document.querySelectorAll('.mobile-menu-item')[${['dashboard', 'workers', 'orders', 'field-reports', 'inventory', 'secretary', 'reports'].indexOf(view)}].click()`)
+      assert.equal(await evaluate("[...document.querySelectorAll('.mobile-menu-item')].some(button => ['Secretaría', 'Agenda'].includes(button.textContent.trim().replace('›', '').trim()))"), false)
+      await evaluate(`document.querySelectorAll('.mobile-menu-item')[${['dashboard', 'workers', 'orders', 'field-reports', 'inventory', 'reports'].indexOf(view)}].click()`)
       await see(heading)
       assert.equal(await evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), false, 'Menu closes after navigation')
       const overflow = await evaluate(`({width: window.innerWidth, scroll: document.documentElement.scrollWidth, elements: [...document.querySelectorAll('main *')].filter(el => el.getBoundingClientRect().right > window.innerWidth + 1 && el.getBoundingClientRect().width > 0).map(el => el.className || el.tagName).slice(0,8)})`)
@@ -382,6 +384,8 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await evaluate("document.querySelector('.login-form').requestSubmit()")
   await see('Resumen de la empresa')
   assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Crear usuario')"), false)
+  await click('Agenda')
+  await see('Agenda de órdenes')
   assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(el => ['Contratos','Reportes','Personal'].includes(el.textContent.trim()))"), false)
   await click('Trabajadores')
   await see('Candidatos')

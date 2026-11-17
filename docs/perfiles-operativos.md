@@ -6,7 +6,7 @@ La aplicación se manejará principalmente desde celulares. Los cambios de inter
 
 Las acciones de eliminación del Gerente deben ser accesibles desde el celular, con confirmación clara antes de borrar y mensajes que indiquen si la operación se completó o falló.
 
-El panel incorpora cabecera compacta, barra inferior con Inicio, Órdenes, Reportes y Más, y un menú con todas las secciones, creación de usuarios y cierre de sesión. En celular las tablas de personal y seguimiento se presentan como fichas; las órdenes permiten buscar por cliente, técnico o área y filtrar por estado. Los formularios usan controles táctiles y texto de entrada de 16 píxeles. La navegación y el ajuste de las siete secciones de Gerencia se verifican en Chrome con anchos de 320, 390, 430 y 768 píxeles mediante `server/panel-browser.test.js`. Contratos y Proveedores se retiraron del panel a solicitud del usuario.
+El panel incorpora cabecera compacta, barra inferior con Inicio, Órdenes, Reportes y Más, y un menú con todas las secciones, creación de usuarios y cierre de sesión. En celular las tablas de personal y seguimiento se presentan como fichas; las órdenes permiten buscar por cliente, técnico o área y filtrar por estado. Los formularios usan controles táctiles y texto de entrada de 16 píxeles. La navegación y el ajuste de las seis secciones de Gerencia se verifican en Chrome con anchos de 320, 390, 430 y 768 píxeles mediante `server/panel-browser.test.js`. Contratos y Proveedores se retiraron del panel a solicitud del usuario.
 
 ## Requisito de eliminación del Gerente
 
@@ -17,6 +17,10 @@ Implementado para órdenes: en **Órdenes**, el Gerente puede tocar **Borrar ord
 La eliminación general de personas y otros registros independientes sigue pendiente. Agregar estos permisos no elimina datos existentes durante el despliegue.
 
 ## Permisos implementados
+
+### Menús por perfil
+
+El Gerente dispone de **Dashboard**, **Trabajadores**, **Órdenes**, **Reportes de obra**, **Bodega e inventario** y **Reportes**. No tiene una sección Secretaría ni una agenda duplicada de sus órdenes. El perfil **Secretaría** se mantiene como usuario independiente, con sus permisos administrativos limitados. En su sesión, **Agenda** muestra los trabajos abiertos por fecha prevista; el nombre describe su función, no un rol. Los roles, las cuentas y las secciones del menú son conceptos separados.
 
 ### Control de trabajadores
 

@@ -14,7 +14,7 @@ import { DashboardSection } from './features/dashboard/DashboardSection'
 import { OrdersSection } from './features/orders/OrdersSection'
 import { CreateOrderDialog, type OrderDraft } from './features/orders/CreateOrderDialog'
 import { ReportsSection } from './features/reports/ReportsSection'
-import { SecretarySection } from './features/secretary/SecretarySection'
+import { AgendaSection } from './features/agenda/AgendaSection'
 import { roleViews } from './constants/roles'
 import { useApplicants } from './hooks/useApplicants'
 import { useOrders } from './hooks/useOrders'
@@ -123,8 +123,8 @@ function App() {
       case 'orders':
         return <OrdersSection onViewRecord={sessionUser?.role !== 'Trabajador' ? id => { setRecordOrderId(id); setSelectedView('field-reports'); window.scrollTo({ top: 0, behavior: 'instant' }) } : undefined} canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
 
-      case 'secretary':
-        return <SecretarySection orders={orders} error={ordersError} onViewOrders={() => setSelectedView('orders')} />
+      case 'agenda':
+        return <AgendaSection orders={orders} error={ordersError} onViewOrders={() => setSelectedView('orders')} />
 
       case 'reports':
         return <ReportsSection data={overview} />
