@@ -6,6 +6,8 @@ La aplicación se manejará principalmente desde celulares. Los cambios de inter
 
 Las acciones de eliminación del Gerente deben ser accesibles desde el celular, con confirmación clara antes de borrar y mensajes que indiquen si la operación se completó o falló.
 
+El panel incorpora cabecera compacta, barra inferior con Inicio, Órdenes, Reportes y Más, y un menú con todas las secciones, creación de usuarios y cierre de sesión. En celular las tablas de personal y seguimiento se presentan como fichas; las órdenes permiten buscar por cliente, técnico o área y filtrar por estado. Los formularios usan controles táctiles y texto de entrada de 16 píxeles. La navegación y el ajuste de las nueve secciones de Gerencia se verifican en Chrome con anchos de 320, 390, 430 y 768 píxeles mediante `server/panel-browser.test.js`.
+
 ## Requisito de eliminación del Gerente
 
 El Gerente debe poder eliminar personas (personal, candidatos y cuentas), reportes, trabajos u órdenes y los demás registros operativos de la aplicación. La interfaz debe ofrecer estas acciones al Gerente y la API debe comprobar el permiso en cada solicitud. Este requisito no concede permisos de eliminación a otros perfiles.

@@ -48,9 +48,14 @@ function OrderCard({ order, assignees, canWrite, canAssign, canClose, onUpdate, 
   </article>
 }
 export function OrdersSection({ orders, onCreate, ...props }: Props) {
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState('Todas')
+  const filtered = orders.filter(order => (status === 'Todas' || order.status === status) && [order.client, order.area, order.assignedName ?? '', order.id].some(value => value.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())))
   return <section className="content-block"><div className="panel panel-full">
     <div className="panel-header"><div><p className="eyebrow">Operación</p><h2>Órdenes de trabajo y seguimiento</h2></div>{props.canCreate && <button className="primary-button" onClick={onCreate}>Nueva OT</button>}</div>
     {!orders.length && <p>No hay órdenes registradas. Crea la primera para comenzar.</p>}
-    <div className="order-grid">{orders.map(order => <OrderCard key={`${order.id}-${order.version}`} order={order} {...props} />)}</div>
+    {!!orders.length && <><div className="orders-filters"><label>Buscar orden<input type="search" placeholder="Cliente, técnico o área" value={search} onChange={event => setSearch(event.target.value)} /></label><label>Estado<select value={status} onChange={event => setStatus(event.target.value)}>{['Todas', 'Programada', 'Asignada', 'En ejecución', 'Revisión', 'Cerrada'].map(value => <option key={value}>{value}</option>)}</select></label></div><p className="metric-explanation" role="status">{filtered.length} de {orders.length} órdenes</p></>}
+    {!!orders.length && !filtered.length && <p>No hay órdenes con esta búsqueda. Cambia el texto o el estado.</p>}
+    <div className="order-grid">{filtered.map(order => <OrderCard key={`${order.id}-${order.version}`} order={order} {...props} />)}</div>
   </div></section>
 }

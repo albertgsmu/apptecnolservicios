@@ -23,6 +23,8 @@ import { useOrders } from './hooks/useOrders'
 import { useAuth } from './hooks/useAuth'
 import { useEmployees } from './hooks/useEmployees'
 import { CreateUserDialog } from './components/CreateUserDialog'
+import { MobileNavigation } from './components/MobileNavigation'
+import './mobile.css'
 import { can } from '../shared/access-policy.js'
 import type { ApplicantStatus, EmployeeStatus, View } from './types'
 
@@ -163,6 +165,14 @@ function App() {
   }
 
   const visibleMenuItems = sessionUser ? menuItems.filter((item) => (roleViews[sessionUser.role] ?? []).includes(item.key)) : []
+  const navigate = (view: View) => {
+    setSelectedView(view)
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
+  const handleLogout = async () => {
+    try { await logout() }
+    catch (error) { console.error('No se pudo cerrar la sesión en el servidor.', error) }
+  }
 
   if (isRestoringSession) {
     return <main className="startup-status" role="status"><h1>JP Mantenimiento Integral</h1><p>Comprobando tu sesión…</p></main>
@@ -182,7 +192,8 @@ function App() {
   }
 
   return (
-    <div className="admin-shell">
+    <div className="admin-shell" data-view={activeView}>
+      <MobileNavigation items={visibleMenuItems} activeView={activeView} role={sessionUser!.role} name={sessionUser!.name} onNavigate={navigate} onLogout={handleLogout} onCreateUser={sessionUser?.role === 'Gerente' ? () => setCreateUserOpen(true) : undefined} />
       <aside className="sidebar">
         <div className="brand-block">
           <div className="brand-logo">
@@ -196,7 +207,8 @@ function App() {
               key={item.key}
               type="button"
               className={activeView === item.key ? 'nav-item active' : 'nav-item'}
-              onClick={() => setSelectedView(item.key)}
+              aria-current={activeView === item.key ? 'page' : undefined}
+              onClick={() => navigate(item.key)}
             >
               {item.label}
             </button>
@@ -229,6 +241,7 @@ function App() {
           <div>
             <p className="eyebrow">Sistema administrativo</p>
             <h1>{sessionUser?.role === 'Trabajador' ? 'Mi espacio de trabajo' : 'Panel corporativo de operación'}</h1>
+            <h2 className="mobile-page-title">{activeView === 'dashboard' ? 'Resumen de la empresa' : visibleMenuItems.find(item => item.key === activeView)?.label}</h2>
           </div>
 
           <div className="topbar-actions">

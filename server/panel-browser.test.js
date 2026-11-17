@@ -14,6 +14,7 @@ import { open } from 'sqlite'
 import { migrateSqliteAuthSchema } from './migrations/auth-security.js'
 
 async function waitFor(check, description) {
+  if (process.env.PANEL_TRACE === 'true') console.log(`Checking: ${description}`)
   for (let i = 0; i < 150; i++) {
     try { const value = await check(); if (value) return value } catch { /* Wait for readiness. */ }
     await delay(100)
@@ -111,7 +112,7 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   const text = () => evaluate('document.body.innerText')
   const see = expected => waitFor(async () => (await text()).includes(expected), expected)
   const metric = label => evaluate(`([...document.querySelectorAll('.stat-card')].find(card => card.querySelector('span')?.textContent === ${JSON.stringify(label)})?.querySelector('strong')?.textContent)`)
-  const click = label => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}); if (!button) throw Error('Button missing'); button.click(); })()`)
+  const click = label => evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(b => !b.closest('.mobile-bottom-nav') && b.textContent.trim() === ${JSON.stringify(label)}); if (!button) throw Error('Button missing'); button.click(); })()`)
   const fill = (selector, value) => evaluate(`(() => { const el=document.querySelector(${JSON.stringify(selector)}); if (!el) throw Error('Input missing'); Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value').set.call(el,${JSON.stringify(value)}); el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); })()`)
   await send('Runtime.enable')
   await send('Page.enable')
@@ -142,7 +143,7 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
     await fill('#mfa-code', createTotpToken(secret, Math.floor(Date.now() / 30000)))
     await evaluate("document.querySelector('.login-form').requestSubmit()")
   }
-  await see('Panel corporativo de operación')
+  await see('Resumen de la empresa')
   await see('Aún no hay órdenes registradas.')
   await waitFor(async () => (await metric('Empleados activos')) === '1', 'real employee aggregate')
   assert.equal(await metric('Órdenes abiertas'), '0')
@@ -262,6 +263,32 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await see('100%')
   await waitFor(async () => (await metric('Órdenes cerradas')) === '1', 'overview updates after closing')
   assert.equal(await metric('Avance del trabajo abierto'), '—', 'Closed work does not inflate open progress')
+  // Exercise the actual mobile navigation with populated records, not only empty pages.
+  for (const width of [320, 390, 430, 768]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
+    assert.ok(await evaluate("document.querySelector('.sidebar').getBoundingClientRect().width === 0"), 'Desktop sidebar is replaced on phones and tablets')
+    for (const [view, heading] of [['dashboard', 'Seguimiento de órdenes'], ['workers', 'Trabajadores y estructura operativa'], ['personal', 'Asistencia semanal'], ['orders', 'Órdenes de trabajo y seguimiento'], ['field-reports', 'Reportes'], ['inventory', 'Bodega'], ['contracts', 'Contratos vigentes'], ['secretary', 'Agenda del gerente'], ['reports', 'Reportes y exportación']]) {
+      await evaluate("document.querySelector('.mobile-menu-trigger').click()")
+      await waitFor(() => evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), 'Mobile menu opens')
+      assert.ok(await evaluate("document.querySelector('.mobile-menu-sheet').contains(document.activeElement)"), 'Menu receives keyboard focus')
+      await evaluate(`document.querySelectorAll('.mobile-menu-item')[${['dashboard', 'workers', 'personal', 'orders', 'field-reports', 'inventory', 'contracts', 'secretary', 'reports'].indexOf(view)}].click()`)
+      await see(heading)
+      assert.equal(await evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), false, 'Menu closes after navigation')
+      const overflow = await evaluate(`({width: window.innerWidth, scroll: document.documentElement.scrollWidth, elements: [...document.querySelectorAll('main *')].filter(el => el.getBoundingClientRect().right > window.innerWidth + 1 && el.getBoundingClientRect().width > 0).map(el => el.className || el.tagName).slice(0,8)})`)
+      assert.ok(overflow.scroll <= width + 1, `${view} fits ${width}px: ${JSON.stringify(overflow)}`)
+      assert.ok(await evaluate("document.querySelector('.mobile-bottom-nav').getBoundingClientRect().bottom <= window.innerHeight"), 'Navigation stays in reach')
+      if (width === 390 && ['dashboard', 'orders', 'workers'].includes(view)) {
+        const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+        await writeFile(path.resolve(`.local-secrets/gerente-movil-${view}.png`), Buffer.from(shot.data, 'base64'))
+      }
+    }
+    await evaluate("document.querySelector('.mobile-bottom-nav button').click()")
+    await see('Seguimiento de órdenes')
+    await evaluate("document.querySelector('.mobile-menu-trigger').click()")
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+    await waitFor(() => evaluate("!document.querySelector('.mobile-menu-sheet')"), 'Escape closes menu')
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false })
   await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/dashboard/overview', requestStage: 'Request' }] })
   const rejectOverview = event => {
     const message = JSON.parse(event.data)
@@ -304,7 +331,7 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await fill('#login-email', 'secretary.browser@example.test')
   await fill('#login-password', password)
   await evaluate("document.querySelector('.login-form').requestSubmit()")
-  await see('Panel corporativo de operación')
+  await see('Resumen de la empresa')
   assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Crear usuario')"), false)
   assert.equal(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].some(el => ['Contratos','Reportes','Trabajadores'].includes(el.textContent.trim()))"), false)
   await click('Órdenes')
@@ -330,7 +357,7 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   const gateShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
   await writeFile(path.resolve('.local-secrets/acceso-ubicacion-obligatoria.png'), Buffer.from(gateShot.data, 'base64'))
   await click('Permitir ubicación y entrar')
-  await see('Mi espacio de trabajo')
+  await waitFor(() => evaluate("Boolean(document.querySelector('.admin-shell'))"), 'Worker panel opens')
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.sidebar-nav button')].map(el => el.textContent.trim())"), ['Mi jornada', 'Órdenes', 'Reportes de obra'])
   await waitFor(() => evaluate("Boolean(document.querySelector('.worker-assignment'))"), 'assigned work shown first')
   assert.equal(await evaluate("document.querySelector('#arrival-order')"), null)
@@ -462,20 +489,20 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await writeFile(path.resolve('.local-secrets/acceso-ubicacion-denegada.png'), Buffer.from(deniedShot.data, 'base64'))
   await send('Browser.setPermission', { permission: { name: 'geolocation' }, setting: 'granted', origin })
   await click('Permitir ubicación y entrar')
-  await see('Mi espacio de trabajo')
+  await waitFor(() => evaluate("Boolean(document.querySelector('.admin-shell'))"), 'Worker panel opens')
   await click('Cerrar sesión')
   await see('Inicia sesión')
   await fill('#login-email', 'new-worker.browser@example.test')
   await fill('#login-password', password)
   await evaluate("document.querySelector('.login-form').requestSubmit()")
-  await see('Mi espacio de trabajo')
+  await waitFor(() => evaluate("Boolean(document.querySelector('.admin-shell'))"), 'Worker panel opens')
   assert.equal(await evaluate("document.body.innerText.includes('Registra tu ubicaci\u00f3n para entrar')"), false, 'No repeat notice on same-day login')
   await click('Cerrar sesión')
   await see('Inicia sesión')
   await fill('#login-email', 'worker.browser@example.test')
   await fill('#login-password', password)
   await evaluate("document.querySelector('.login-form').requestSubmit()")
-  await see('Mi espacio de trabajo')
+  await waitFor(() => evaluate("Boolean(document.querySelector('.admin-shell'))"), 'Worker panel opens')
   await see('Tienes 1 respuestas sin leer.')
   await see('Materiales enviados. Puedes continuar.')
   assert.equal(await evaluate("document.querySelector('#field-report-order')"), null, 'Worker report does not offer a work-site selector')
