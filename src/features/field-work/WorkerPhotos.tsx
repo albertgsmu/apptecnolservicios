@@ -9,8 +9,8 @@ export function WorkerPhotos({ manager, data, reload, currentOrder }: { currentO
   const [notice, setNotice] = useState('')
   const mounted = useRef(false)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  return <div className="panel"><h3>Evidencias fotográficas obligatorias</h3>
-    <p>Mínimo 3 fotos diferentes por día, por trabajador con obra abierta asignada. Día de Colombia: {data?.dailyPhotos.day ?? 'consultando…'}. Cada foto se guarda junto con una lectura nueva de ubicación.</p>
+  return <div className="panel"><h3>{manager ? 'Fotos del equipo' : 'Evidencias fotográficas obligatorias'}</h3>
+    {manager ? <p className="metric-explanation">{data?.dailyPhotos.day ?? 'Consultando…'} · Mínimo 3 fotos por trabajador</p> : <p>Mínimo 3 fotos diferentes por día, por trabajador con obra abierta asignada. Día de Colombia: {data?.dailyPhotos.day ?? 'consultando…'}. Cada foto se guarda junto con una lectura nueva de ubicación.</p>}
     <div className="field-report-list">{data?.dailyPhotos.workers.map(worker => <p key={worker.employeeId}><strong>{worker.name}: {worker.count}/3 fotos</strong> · {worker.missing ? `Pendiente: faltan ${worker.missing}` : 'Requisito diario cumplido'}</p>)}</div>
     {!manager && <form className="field-form" onSubmit={async event => {
       event.preventDefault()
@@ -36,7 +36,7 @@ export function WorkerPhotos({ manager, data, reload, currentOrder }: { currentO
       <button className="primary-button" disabled={busy || !currentOrder}>{busy ? 'Registrando evidencia…' : 'Enviar foto'}</button>
       {notice && <p role="status">{notice}</p>}
     </form>}
-    <h4>{manager ? 'Fotos del equipo' : 'Mis fotos enviadas'}</h4><p>Últimas 100 evidencias. El contador diario incluye todas las fotos del día, sin un máximo de tres.</p>
+    {!manager && <><h4>Mis fotos enviadas</h4><p>Últimas 100 evidencias. El contador diario incluye todas las fotos del día, sin un máximo de tres.</p></>}
     <div className="field-report-list">{data?.photos.map(photo => <article className="field-report-card" key={photo.id}>
       <strong>{photo.employeeName} · {photo.client}</strong>
       <a href={`${getApiBaseUrl()}/api/field-work/photos/${photo.id}/content`} target="_blank" rel="noreferrer"><img src={`${getApiBaseUrl()}/api/field-work/photos/${photo.id}/content`} alt={photo.caption} loading="lazy" style={{ display: 'block', maxWidth: '100%', maxHeight: 280, marginTop: 12, objectFit: 'contain' }} /></a>

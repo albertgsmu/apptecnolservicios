@@ -26,14 +26,13 @@ export function ReportsSection({ data }: { data: DashboardOverview | null }) {
         const overview = await apiRequest<DashboardOverview>('/dashboard/overview')
         downloadCsv('resumen-operativo.csv', [['Indicador', 'Valor'], ['Consulta UTC', overview.generatedAt], ['Órdenes registradas', overview.orders.total], ['Órdenes abiertas', overview.orders.open], ['Órdenes cerradas', overview.orders.closed], ['En revisión', overview.operations.review], ['Sin técnico', overview.operations.unassigned], ['Críticas abiertas', overview.operations.critical], ['Fecha prevista vencida', overview.operations.overdue], ['Avance promedio de abiertas (%)', overview.operations.openAverageProgress ?? 'No disponible'], ['Empleados registrados', overview.employees?.total ?? 'No disponible'], ['Empleados activos', overview.employees?.active ?? 'No disponible'], ['Candidatos pendientes', overview.applicants.pending], ['Adjuntos guardados', overview.media.files]])
       }
-      setNotice('El archivo CSV se preparó con una consulta nueva de los datos guardados.')
+      setNotice('CSV generado.')
     } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo generar el reporte.') }
     finally { setBusy(false) }
   }
   return <section className="content-block"><div className="panel panel-full"><div className="panel-header"><div><p className="eyebrow">Información operativa</p><h2>Reportes y exportación</h2></div></div>
-    <p>Los reportes se generan al descargarlos. Incluyen los registros actuales, sin filtro de fechas.</p>
-    <div className="report-grid"><article className="report-card"><div><strong>Órdenes de trabajo</strong><p>Cliente, técnico, estado, avance, fecha prevista y cantidad de adjuntos.</p><small>{data ? `${data.orders.total} órdenes en la última consulta.` : 'Cantidad pendiente de consulta.'}</small></div><button className="primary-button" disabled={busy} onClick={() => void exportReport('orders')}>Descargar órdenes CSV</button></article>
-      <article className="report-card"><div><strong>Resumen operativo</strong><p>Órdenes, personal, candidatos y archivos guardados.</p></div><button className="primary-button" disabled={busy} onClick={() => void exportReport('overview')}>Descargar resumen CSV</button></article></div>
-    {notice && <p role="status">{notice}</p>}<p className="metric-explanation">No se emiten informes financieros ni de asistencia porque sus registros aún no están conectados.</p>
+    <div className="report-grid"><article className="report-card"><div><strong>Órdenes de trabajo</strong>{data && <small>{data.orders.total} órdenes</small>}</div><button className="primary-button" disabled={busy} onClick={() => void exportReport('orders')}>Descargar órdenes CSV</button></article>
+      <article className="report-card"><div><strong>Resumen operativo</strong></div><button className="primary-button" disabled={busy} onClick={() => void exportReport('overview')}>Descargar resumen CSV</button></article></div>
+    {notice && <p role="status">{notice}</p>}
   </div></section>
 }
