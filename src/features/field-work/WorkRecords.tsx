@@ -60,9 +60,10 @@ export function AccessRecords({ checkIns }: { checkIns: WorkerCheckIn[] }) {
   </section>
 }
 
-function SelectedWorkRecord({ order, showLocations, onBack, onSaved, refreshToken }: { order: WorkOrder; showLocations: boolean; onBack: () => void; onSaved: () => void; refreshToken?: string }) {
-  const [tab, setTab] = useState('Resumen')
-  const history = useFieldWork('work-record', order.id)
+function SelectedWorkRecord({ order, showLocations, onBack, onSaved, refreshToken, initialReportId }: { order: WorkOrder; showLocations: boolean; onBack: () => void; onSaved: () => void; refreshToken?: string; initialReportId?: string }) {
+  const [tab, setTab] = useState(initialReportId ? 'Reportes' : 'Resumen')
+  const [focusedReportId, setFocusedReportId] = useState(initialReportId)
+  const history = useFieldWork('work-record', order.id, focusedReportId)
   const reloadHistory = history.reload
   useEffect(() => { if (refreshToken) void reloadHistory() }, [refreshToken, reloadHistory])
   const tabs = showLocations ? ['Resumen', 'Llegadas', 'Fotos', 'Reportes'] : ['Resumen', 'Reportes']
@@ -77,19 +78,19 @@ function SelectedWorkRecord({ order, showLocations, onBack, onSaved, refreshToke
       {tab === 'Resumen' && <div className="panel"><h3>Resumen de la obra</h3><dl className="work-record-summary"><div><dt>Trabajador asignado</dt><dd>{order.assignedName || 'Sin asignar'}</dd></div><div><dt>Fecha prevista</dt><dd>{order.date || 'Por definir'}</dd></div><div><dt>Avance</dt><dd>{order.progress}%</dd></div><div><dt>Reportes pendientes</dt><dd>{history.data ? history.data.totals.pending : 'Consultando…'}</dd></div></dl><OrderSiteInfo site={showLocations ? order.site : { ...order.site, geofence: undefined }} />{order.observations && <p className="field-text">{order.observations}</p>}<OrderAttachments attachments={order.attachments} /></div>}
       {tab === 'Llegadas' && history.data && <ArrivalRecords data={history.data} orderId={order.id} />}
       {tab === 'Fotos' && history.data && <PhotoRecords data={history.data} orderId={order.id} showLocations={showLocations} />}
-      {tab === 'Reportes' && history.data && <FieldReportList reports={history.data.reports} manager reload={reload} />}
+      {tab === 'Reportes' && history.data && <>{focusedReportId && <button className="ghost-button" onClick={() => setFocusedReportId(undefined)}>Ver todos los reportes de esta obra</button>}<FieldReportList reports={history.data.reports} manager reload={reload} /></>}
     </div>
     {tab !== 'Resumen' && <p className="metric-explanation">Hasta 100 registros recientes por categoría, solo de esta obra.</p>}
   </section>
 }
 
-export function WorkRecords({ orders, data, showLocations, initialOrderId, reload }: { orders: WorkOrder[]; data: FieldWorkData | null; showLocations: boolean; initialOrderId?: string; reload: () => void }) {
+export function WorkRecords({ orders, data, showLocations, initialOrderId, initialReportId, reload }: { orders: WorkOrder[]; data: FieldWorkData | null; showLocations: boolean; initialOrderId?: string; initialReportId?: string; reload: () => void }) {
   const [selectedId, setSelectedId] = useState(initialOrderId ?? '')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('Todas')
   const [showAccess, setShowAccess] = useState(false)
   const selected = orders.find(order => order.id === selectedId)
-  if (selected) return <SelectedWorkRecord key={selected.id} order={selected} showLocations={showLocations} onBack={() => setSelectedId('')} onSaved={reload} refreshToken={data?.generatedAt} />
+  if (selected) return <SelectedWorkRecord key={selected.id} order={selected} showLocations={showLocations} onBack={() => setSelectedId('')} onSaved={reload} refreshToken={data?.generatedAt} initialReportId={initialReportId} />
   const filtered = orders.filter(order => (status === 'Todas' || (status === 'Cerradas' ? order.status === 'Cerrada' : order.status !== 'Cerrada')) && [order.client, order.assignedName, order.site.address, order.site.city, order.id].some(value => value.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())))
   return <section className="content-block work-records"><div className="panel"><div className="panel-header"><div><p className="eyebrow">Reportes de obra</p><h2>Registro por obra</h2></div></div>
     <div className="orders-filters"><label>Buscar obra<input type="search" placeholder="Cliente, dirección o trabajador" value={search} onChange={event => setSearch(event.target.value)} /></label><label>Estado<select value={status} onChange={event => setStatus(event.target.value)}>{['Todas', 'Abiertas', 'Cerradas'].map(item => <option key={item}>{item}</option>)}</select></label></div>

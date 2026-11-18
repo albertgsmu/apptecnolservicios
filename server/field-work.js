@@ -27,12 +27,15 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
     if (orderId !== undefined && (typeof orderId !== 'string' || !orderId || orderId.length > 100)) return res.status(400).json({ message: 'Selecciona una obra válida.' })
     if (worker && orderId) return res.status(403).json({ message: 'Consulta tus registros desde Mi jornada.' })
     if (orderId && !await dbGet('SELECT id FROM work_orders WHERE id=$1', [orderId])) return res.status(404).json({ message: 'La obra ya no está disponible.' })
+    const reportId = req.query.reportId
+    if (reportId !== undefined && (typeof reportId !== 'string' || !reportId || reportId.length > 100 || !orderId)) return res.status(400).json({ message: 'Selecciona un reporte y su obra.' })
+    if (reportId && !await dbGet('SELECT id FROM worker_reports WHERE id=$1 AND order_id=$2', [reportId, orderId])) return res.status(404).json({ message: 'El reporte ya no está disponible en esta obra.' })
     const scope = worker ? ' WHERE r.user_id=$1' : orderId ? ' WHERE r.order_id=$1' : ''
     const params = worker ? [req.user.id] : orderId ? [orderId] : []
     const reports = await dbQuery(`SELECT r.*, e.name AS employee_name, o.client, o.site_details, u.name AS reviewer_name,u.role AS reviewer_role
       FROM worker_reports r JOIN employees e ON e.id=r.employee_id
-      JOIN work_orders o ON o.id=r.order_id LEFT JOIN users u ON u.id=r.reviewed_by${scope}
-      ORDER BY r.created_at DESC, r.id LIMIT 100`, params)
+      JOIN work_orders o ON o.id=r.order_id LEFT JOIN users u ON u.id=r.reviewed_by${scope}${reportId ? ' AND r.id=$2' : ''}
+      ORDER BY r.created_at DESC, r.id LIMIT 100`, reportId ? [...params, reportId] : params)
     const locationAccess = req.user.role === 'Gerente'
     const checkIns = locationAccess ? await dbQuery(`SELECT r.id,r.employee_id,r.order_id,r.kind,r.location_status,r.latitude,r.longitude,r.accuracy,
       r.captured_at,r.notes,r.created_at,e.name AS employee_name,o.client,o.site_details
@@ -130,6 +133,8 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [id, req.user.id, employee.id, orderId, category, urgency, title.trim(), details.trim(), requestedAction.trim(), now, JSON.stringify(materials.value)])
       await tx.run('INSERT INTO security_events (id,user_id,event,created_at) VALUES ($1,$2,$3,$4)', [randomUUID(), req.user.id, `field_report_created:${id}`, now])
     })
+    io?.to('reports:review').emit('field-report-updated', { reportId: id })
+    io?.to('reports:review').emit('report-alerts-updated', { kind: 'created', reportId: id })
     return res.status(201).json({ id, message: 'Reporte enviado.' })
   }))
 
@@ -159,6 +164,10 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
       return true
     })
     if (changed) io?.to(`user:${reportOwner}`).emit('field-report-updated', { reportId: req.params.id })
+    if (changed) {
+      io?.to('reports:review').emit('field-report-updated', { reportId: req.params.id })
+      io?.to('reports:review').emit('report-alerts-updated', { kind: 'updated', reportId: req.params.id })
+    }
     return changed ? res.json({ message: 'Seguimiento actualizado.' }) : res.status(409).json({ message: 'El reporte cambió o no existe. Actualiza los datos.' })
   }))
 }

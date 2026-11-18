@@ -36,6 +36,10 @@ Secretaría conserva únicamente la consulta de candidatos dentro de esta secci�
 
 ### Registro por obra
 
+Secretaría, Supervisor y Gerente reciben avisos de reportes nuevos en tiempo real. Una franja visible en todas sus secciones muestra los reportes por resolver, sin leer y sin atender; los casos críticos se destacan en rojo. Los contadores aparecen también en el menú y en Reportes en celular. **Ver avisos** abre una bandeja priorizada por urgencia y **Atender reporte** abre el reporte exacto dentro de su obra, incluso si es anterior a los últimos 100 registros. Cada usuario conserva su lectura de forma independiente mediante la migración aditiva `014-report-alerts`.
+
+Leer un aviso no resuelve el problema. El reporte permanece visible mientras esté Pendiente o En atención y se retira de los avisos abiertos cuando se marca Resuelto. La respuesta y los cambios de seguimiento generan las notificaciones existentes del trabajador. **Activar sonido** habilita una señal breve para reportes nuevos durante la sesión abierta; los avisos visuales funcionan sin activar sonido. Al volver a la aplicación o reconectar, se consultan los reportes abiertos para recuperar avisos pendientes.
+
 En **Reportes de obra** se busca y abre cada obra; **Órdenes** también ofrece **Ver registro de obra**. El registro reúne **Resumen**, **Llegadas**, **Fotos** y **Reportes**. Gerencia consulta llegadas y fotos agrupadas por día, filtra llegadas por fecha y abre mapa, precisión y distancia con **Ver detalle**. Los registros se consultan por ID de orden, con hasta 100 elementos recientes por categoría; los totales de reportes corresponden a toda esa obra. Las obras cerradas conservan su registro.
 
 Los inicios de sesión permanecen separados en **Accesos de trabajadores**, agrupados por persona. No se presentan como llegadas a la obra. Las ubicaciones obtenidas al enviar fotos se identifican como tales; su comparación usa el radio y la evaluación registrados al momento del envío. Secretarías y Supervisores consultan el resumen y los reportes de cada obra sin recibir fotos ni ubicaciones reservadas a Gerencia.

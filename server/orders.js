@@ -48,6 +48,7 @@ export function registerOrders(app, { dbRun, dbGet, dbQuery, authRequired, allow
         await tx.run('UPDATE inventory_movements SET order_id=NULL,notes=notes || $1 WHERE order_id=$2', [`\nOrden eliminada: ${order.id} · ${order.client}`, order.id])
         await tx.run('DELETE FROM inventory_allocations WHERE order_id=$1', [order.id])
         await tx.run('DELETE FROM worker_report_notifications WHERE report_id IN (SELECT id FROM worker_reports WHERE order_id=$1)', [order.id])
+        await tx.run('DELETE FROM report_alert_reads WHERE report_id IN (SELECT id FROM worker_reports WHERE order_id=$1)', [order.id])
         await tx.run('DELETE FROM location_assessments WHERE event_id IN (SELECT id FROM worker_photos WHERE order_id=$1 UNION ALL SELECT id FROM worker_check_ins WHERE order_id=$1)', [order.id])
         await tx.run('DELETE FROM worker_reports WHERE order_id=$1', [order.id])
         await tx.run('DELETE FROM worker_photos WHERE order_id=$1', [order.id])

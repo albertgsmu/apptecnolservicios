@@ -27,6 +27,7 @@ import { assertAuthSchema } from './database-readiness.js'
 import { managerMfaRequired } from './auth-policy.js'
 import { registerUsers } from './users.js'
 import { migrateDirectMessages, registerDirectMessages } from './direct-messages.js'
+import { migrateReportAlerts, registerReportAlerts } from './report-alerts.js'
 import { registerDashboard } from './dashboard.js'
 import { activeRoleNames, permissionRoles } from '../shared/access-policy.js'
 import { migrateUserAccess } from './migrations/user-access.js'
@@ -202,6 +203,7 @@ const ensureDatabase = async () => {
   await migrateMaterialRequests({ dbRun, dbQuery, dbMode })
   await migrateInventory(dbRun)
   await migrateDirectMessages(dbRun)
+  await migrateReportAlerts(dbRun)
 
   const count = await dbGet('SELECT COUNT(*) AS total FROM users')
   if (Number(count.total) === 0) {
@@ -651,6 +653,7 @@ const DUMMY_PASSWORD_HASH = await bcrypt.hash(randomUUID(), 12)
 
 registerUsers(app, { dbQuery, authRequired, allowRoles, asyncRoute, withTransaction })
 registerDirectMessages(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
+registerReportAlerts(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
 
 const mediaStorage = createOrderMediaStorage()
 await mediaStorage.importLegacy({ dbQuery, dbGet, dbRun })
@@ -1098,6 +1101,7 @@ io.use(async (socket, next) => {
 
 io.on('connection', (socket) => {
   socket.join(`user:${socket.data.user.id}`)
+  if (permissionRoles.reviewFieldReports.includes(socket.data.user.role)) socket.join('reports:review')
   if (employeeReadRoles.includes(socket.data.user.role)) {
     socket.join('employees:read')
   }

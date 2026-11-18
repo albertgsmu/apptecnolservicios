@@ -20,6 +20,8 @@ import { useApplicants } from './hooks/useApplicants'
 import { useOrders } from './hooks/useOrders'
 import { useAuth } from './hooks/useAuth'
 import { useMessages } from './hooks/useMessages'
+import { useReportAlerts } from './hooks/useReportAlerts'
+import { ReportAlerts } from './features/field-work/ReportAlerts'
 import { MessagesSection } from './features/messages/MessagesSection'
 import { useEmployees } from './hooks/useEmployees'
 import { CreateUserDialog } from './components/CreateUserDialog'
@@ -35,6 +37,7 @@ import type { ApplicantStatus, EmployeeStatus, ManagedRole, View } from './types
 function App() {
   const [selectedView, setSelectedView] = useState<View>('dashboard')
   const [recordOrderId, setRecordOrderId] = useState<string>()
+  const [recordReportId, setRecordReportId] = useState<string>()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'Todos' | EmployeeStatus>('Todos')
   const [createUserOpen, setCreateUserOpen] = useState(false)
@@ -48,6 +51,8 @@ function App() {
 
   const { isLoggedIn, login, logout, completeLogin, sessionUser, restoreSession, isRestoringSession, sessionError } = useAuth()
   const messages = useMessages(isLoggedIn && can(sessionUser?.role, 'directMessages') ? sessionUser!.email : null)
+  const reportAlerts = useReportAlerts(isLoggedIn && can(sessionUser?.role, 'reviewFieldReports') ? sessionUser!.email : null)
+  const reloadReportAlerts = reportAlerts.reload
   const canWriteOrders = can(sessionUser?.role, 'createOrders')
   const canManageOrders = can(sessionUser?.role, 'manageOrders')
   const canUpdateOrders = can(sessionUser?.role, 'updateOrders')
@@ -59,7 +64,7 @@ function App() {
   const refreshCompanyData = () => { void reloadOverview(); void reloadOrders(); if (canReadEmployees) reloadEmployees(); if (can(sessionUser?.role, 'directMessages')) void messages.reload() }
   const fieldWork = useFieldWork(isLoggedIn && sessionUser && ['Gerente', 'Secretaria', 'Supervisor', 'Trabajador'].includes(sessionUser.role) ? sessionUser.email : null)
   const reloadFieldWork = fieldWork.reload
-  const refreshFieldWork = useCallback(() => { void reloadFieldWork(); void reloadOverview() }, [reloadFieldWork, reloadOverview])
+  const refreshFieldWork = useCallback(() => { void reloadFieldWork(); void reloadOverview(); void reloadReportAlerts() }, [reloadFieldWork, reloadOverview, reloadReportAlerts])
 
   useEffect(() => {
     void restoreSession()
@@ -113,7 +118,7 @@ function App() {
         return <InventorySection key={sessionUser?.email} manager={sessionUser?.role === 'Gerente'} writable={can(sessionUser?.role, 'manageInventory')} />
       case 'my-work':
       case 'field-reports':
-        return <><DataStatus loading={fieldWork.loading} error={fieldWork.error} generatedAt={fieldWork.data?.generatedAt} onRefresh={refreshFieldWork} label="Reportes de obra" actionLabel="Actualizar reportes" /><FieldWorkPanel key={`${sessionUser?.email}:${recordOrderId ?? ''}`} initialOrderId={recordOrderId} manager={sessionUser?.role !== 'Trabajador'} showLocations={sessionUser?.role === 'Gerente' || sessionUser?.role === 'Trabajador'} orders={orders} data={fieldWork.data} reload={refreshFieldWork} /></>
+        return <><DataStatus loading={fieldWork.loading} error={fieldWork.error} generatedAt={fieldWork.data?.generatedAt} onRefresh={refreshFieldWork} label="Reportes de obra" actionLabel="Actualizar reportes" /><FieldWorkPanel key={`${sessionUser?.email}:${recordOrderId ?? ''}:${recordReportId ?? ''}`} initialOrderId={recordOrderId} initialReportId={recordReportId} manager={sessionUser?.role !== 'Trabajador'} showLocations={sessionUser?.role === 'Gerente' || sessionUser?.role === 'Trabajador'} orders={orders} data={fieldWork.data} reload={refreshFieldWork} /></>
       case 'workers':
         return <WorkersHub key={sessionUser?.email} canReadEmployees={canReadEmployees} data={overview} fieldWork={fieldWork.data}
           onCreateWorker={can(sessionUser?.role, 'manageUsers') ? () => openCreateUser('Trabajador') : undefined}
@@ -126,7 +131,7 @@ function App() {
         />
 
       case 'orders':
-        return <OrdersSection onViewRecord={sessionUser?.role !== 'Trabajador' ? id => { setRecordOrderId(id); setSelectedView('field-reports'); window.scrollTo({ top: 0, behavior: 'instant' }) } : undefined} canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
+        return <OrdersSection onViewRecord={sessionUser?.role !== 'Trabajador' ? id => { setRecordReportId(undefined); setRecordOrderId(id); setSelectedView('field-reports'); window.scrollTo({ top: 0, behavior: 'instant' }) } : undefined} canDelete={can(sessionUser?.role, 'deleteOrders')} onDelete={async (id, version) => { await deleteOrder(id, version); void reloadOverview(); void reloadFieldWork() }} canClose={can(sessionUser?.role, 'closeOrders')} onLocationSaved={() => void reloadOrders()} orders={orders} assignees={assignees} canWrite={canUpdateOrders} canCreate={canWriteOrders} canAssign={canManageOrders} onCreate={handleOpenNewOrder} onUpdate={async (id, payload) => { await updateOrder(id, payload); void reloadOverview() }} />
 
       case 'agenda':
         return <AgendaSection orders={orders} error={ordersError} onViewOrders={() => setSelectedView('orders')} />
@@ -141,9 +146,10 @@ function App() {
     }
   }
 
-  const visibleMenuItems = sessionUser ? menuItems.filter((item) => (roleViews[sessionUser.role] ?? []).includes(item.key)).map(item => ({ ...item, unread: item.key === 'messages' ? messages.unread : 0 })) : []
+  const visibleMenuItems = sessionUser ? menuItems.filter((item) => (roleViews[sessionUser.role] ?? []).includes(item.key)).map(item => ({ ...item, unread: item.key === 'messages' ? messages.unread : item.key === 'field-reports' ? reportAlerts.data?.totals.unread ?? 0 : 0 })) : []
   const navigate = (view: View) => {
     setRecordOrderId(undefined)
+    setRecordReportId(undefined)
     setSelectedView(view)
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
@@ -190,7 +196,7 @@ function App() {
               onClick={() => navigate(item.key)}
             >
               {item.label}
-              {item.unread > 0 && <span className="message-count" aria-label={`${item.unread} mensajes sin leer`}>{item.unread}</span>}
+              {item.unread > 0 && <span className="message-count" aria-label={`${item.unread} ${item.key === 'field-reports' ? 'reportes' : 'mensajes'} sin leer`}>{item.unread}</span>}
             </button>
           ))}
         </nav>
@@ -244,6 +250,8 @@ function App() {
             {canWriteOrders && <button type="button" className="primary-button" onClick={handleOpenNewOrder}>Nueva orden</button>}
           </div>
         </header>
+
+        {can(sessionUser?.role, 'reviewFieldReports') && <ReportAlerts key={`report-alerts:${sessionUser?.email}`} data={reportAlerts.data} error={reportAlerts.error} cue={reportAlerts.cue} reload={reportAlerts.reload} read={reportAlerts.read} onAttend={report => { setRecordOrderId(report.orderId); setRecordReportId(report.id); setSelectedView('field-reports'); void reloadOrders(); window.scrollTo({ top: 0, behavior: 'instant' }) }} />}
 
         {createUserOpen && sessionUser?.role === 'Gerente' && <CreateUserDialog initialRole={createUserRole} onClose={closeCreateUser} onCreated={refreshCompanyData} />}
 

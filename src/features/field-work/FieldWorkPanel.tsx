@@ -12,9 +12,9 @@ import { FieldReportList } from './FieldReportList'
 import { WorkRecords } from './WorkRecords'
 
 
-type Props = { showLocations?: boolean; manager: boolean; orders: WorkOrder[]; data: FieldWorkData | null; reload: () => void; initialOrderId?: string }
+type Props = { showLocations?: boolean; manager: boolean; orders: WorkOrder[]; data: FieldWorkData | null; reload: () => void; initialOrderId?: string; initialReportId?: string }
 
-export function FieldWorkPanel({ manager, orders, data, reload, showLocations = true, initialOrderId }: Props) {
+export function FieldWorkPanel({ manager, orders, data, reload, showLocations = true, initialOrderId, initialReportId }: Props) {
   const openOrders = orders.filter(order => order.status !== 'Cerrada')
   const currentOrder = orders.find(order => order.id === data?.currentOrderId)
   const [reportNotice, setReportNotice] = useState('')
@@ -22,7 +22,7 @@ export function FieldWorkPanel({ manager, orders, data, reload, showLocations = 
   const [materials, setMaterials] = useState([emptyMaterialLine()])
   const [draft, setDraft] = useState({ category: 'Avance', urgency: 'Normal', title: '', details: '', requestedAction: '' })
 
-  if (manager) return <WorkRecords orders={orders} data={data} showLocations={showLocations} initialOrderId={initialOrderId} reload={reload} />
+  if (manager) return <WorkRecords orders={orders} data={data} showLocations={showLocations} initialOrderId={initialOrderId} initialReportId={initialReportId} reload={reload} />
 
   return <section className="content-block field-work-panel">
     <WorkerAssignment order={currentOrder} count={openOrders.length} />
