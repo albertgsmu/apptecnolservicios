@@ -56,7 +56,7 @@ function App() {
   const canReadEmployees = can(sessionUser?.role, 'readEmployees')
   const { employees, updateEmployeeStatus, loading: employeeLoading, error: employeeError, reload: reloadEmployees } = useEmployees(isLoggedIn && canReadEmployees)
   const { data: overview, loading: overviewLoading, error: overviewError, reload: reloadOverview } = useOverview(isLoggedIn && sessionUser?.role !== 'Trabajador' ? sessionUser?.email ?? null : null)
-  const refreshCompanyData = () => { void reloadOverview(); void reloadOrders(); if (canReadEmployees) reloadEmployees() }
+  const refreshCompanyData = () => { void reloadOverview(); void reloadOrders(); if (canReadEmployees) reloadEmployees(); if (can(sessionUser?.role, 'directMessages')) void messages.reload() }
   const fieldWork = useFieldWork(isLoggedIn && sessionUser && ['Gerente', 'Secretaria', 'Supervisor', 'Trabajador'].includes(sessionUser.role) ? sessionUser.email : null)
   const reloadFieldWork = fieldWork.reload
   const refreshFieldWork = useCallback(() => { void reloadFieldWork(); void reloadOverview() }, [reloadFieldWork, reloadOverview])
@@ -108,7 +108,7 @@ function App() {
   const renderContent = () => {
     switch (activeView) {
       case 'messages':
-        return <MessagesSection key={sessionUser?.email} contacts={messages.contacts} loading={messages.loading} error={messages.error} revision={messages.revision} reload={messages.reload} />
+        return <MessagesSection key={sessionUser?.email} contacts={messages.contacts} loading={messages.loading} error={messages.error} revision={messages.revision} reload={messages.reload} onCreateSecretary={sessionUser?.role === 'Gerente' ? () => openCreateUser('Secretaria') : undefined} />
       case 'inventory':
         return <InventorySection key={sessionUser?.email} manager={sessionUser?.role === 'Gerente'} writable={can(sessionUser?.role, 'manageInventory')} />
       case 'my-work':

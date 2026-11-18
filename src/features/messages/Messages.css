@@ -22,6 +22,8 @@
 .chat-message small { font-size: 11px; color: #b6c8d5; }
 .chat-empty, .chat-placeholder { color: #a9bdcc; text-align: center; padding: 24px; }
 .chat-placeholder { display: grid; place-items: center; }
+.chat-empty-contacts { padding: 8px; color: #b4c5d5; font-size: 14px; line-height: 1.7; }
+.chat-empty-contacts button { width: 100%; }
 .chat-compose { display: flex; align-items: flex-end; gap: 10px; padding: 12px; border-top: 1px solid #34485c; background: #0b1c2a; }
 .chat-compose textarea { flex: 1; min-width: 0; min-height: 50px; max-height: 140px; resize: vertical; border: 1px solid #34485c; border-radius: 12px; padding: 12px; background: #061421; color: #e2e8f0; font-size: 16px; }
 .chat-compose button { flex: 0 0 auto; min-height: 50px; }
