@@ -1,0 +1,24 @@
+.panel.work-conversation { min-width: 0; padding: 0; overflow: hidden; }
+.work-conversation-header { padding: 18px; border-bottom: 1px solid #34485c; background: #102c3c; }
+.work-conversation-header h3 { margin: 6px 0; }
+.work-conversation-header p:not(.eyebrow) { margin: 5px 0; color: #c1d3df; font-size: 14px; }
+.work-conversation-header small { color: #a9bdcc; overflow-wrap: anywhere; font-size: 12px; }
+.work-conversation-history { max-height: min(65dvh,650px); min-height: 160px; overflow-y: auto; overscroll-behavior: contain; padding: 18px; display: flex; flex-direction: column; gap: 14px; background: #081823; }
+.work-conversation-message { width: min(92%,600px); border: 1px solid #34485c; border-radius: 14px 14px 14px 3px; padding: 14px; background: #153249; min-width: 0; }
+.work-conversation-message.reply { align-self: flex-end; border-radius: 14px 14px 3px 14px; background: #234235; }
+.conversation-author { display: flex; flex-wrap: wrap; gap: 8px; }
+.conversation-author span, .work-conversation-message small { font-size: 12px; color: #b7cbd8; }
+.work-conversation-message h4 { font-size: 14px; margin: 10px 0 6px; }
+.work-conversation-message p { margin-bottom: 6px; font-size: 14px; }
+.work-conversation-composer { padding: 18px; border-top: 1px solid #34485c; background: #0e2433; }
+.work-conversation-composer > label, .worker-conversations > label { display: grid; gap: 8px; margin-bottom: 14px; }
+.work-conversation-composer select, .worker-conversations > label select { width: 100%; min-width: 0; padding: 12px; border: 1px solid #34485c; border-radius: 10px; background: #07131f; color: #e2e8f0; }
+.work-conversation-composer .panel { padding: 0; border: 0; background: transparent; }
+.work-conversation-composer .metric-explanation { font-size: 12px; }
+.conversation-unread { padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; background: #f8c94e10; }
+.focused-work-report { padding: 14px; border-bottom: 1px solid #f8c94e60; }
+.focused-work-report summary { color: #f8c94e; padding: 10px 0; cursor: pointer; }
+.worker-conversations { min-width: 0; }
+.worker-conversations h2 { font-size: 20px; }
+.work-record .work-record-tabs button:last-child { flex: 1.6; }
+@media(max-width:760px) { .work-conversation-header, .work-conversation-history, .work-conversation-composer { padding: 14px; } .work-conversation-message { width: 96%; } .work-conversation-history { max-height: 55dvh; } .work-conversation-composer select { font-size: 16px; } }

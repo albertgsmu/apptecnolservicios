@@ -462,6 +462,46 @@ test('only manager creates accounts; worker sees and updates only own orders; se
     await db.run('DELETE FROM worker_reports WHERE id=?', [criticalId])
     assert.equal((await secretary(`/field-work/reports/${fieldReportId}`, 'PATCH', { status: 'Resuelto', reply: 'Materiales entregados. Continúa el trabajo.', version: storedReport.version })).status, 200)
     for (const request of [manager, secretary, supervisor]) assert.equal((await request('/report-alerts')).body.totals.total, 0, 'Resolving clears the outstanding alert for all reviewers')
+    const threadPath = `/work-conversations/${own.body.id}`
+    assert.equal((await client()(threadPath)).status, 401)
+    assert.equal((await workerRequest(`/work-conversations/${other.body.id}`)).status, 404, 'Worker cannot read another work conversation')
+    assert.ok(!(await workerRequest('/work-conversations')).body.some(order => order.id === other.body.id))
+    const thread = (await workerRequest(threadPath)).body
+    assert.equal(thread.order.id, own.body.id)
+    assert.equal(thread.order.address, draft.site.address)
+    assert.ok(thread.events.some(event => event.kind === 'report' && event.reportId === fieldReportId))
+    assert.ok(thread.events.some(event => event.kind === 'reply' && event.body === 'Materiales autorizados.'))
+    assert.ok(thread.events.some(event => event.kind === 'reply' && event.body === 'Secretaría coordina el envío de materiales.'))
+    assert.ok(thread.events.every(event => event.latitude === undefined), 'Conversation contains no restricted GPS metadata')
+    assert.equal((await secretary(threadPath)).status, 200)
+    assert.equal((await supervisor(threadPath)).status, 200)
+    const oldReportId = randomUUID(), managerId = (await db.get("SELECT id FROM users WHERE role='Gerente'")).id
+    await db.run(`INSERT INTO worker_reports (id,user_id,employee_id,order_id,category,urgency,title,details,status,manager_reply,reviewed_by,reviewed_at,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [oldReportId, storedReport.user_id, storedReport.employee_id, own.body.id, 'Problema', 'Normal', 'Otro reporte de la misma obra', 'Contenido histórico', 'Resuelto', 'Respuesta antigua conservada', managerId, '2000-01-01T01:00:00.000Z', '2000-01-01T00:00:00.000Z'])
+    assert.ok((await workerRequest(threadPath)).body.events.some(event => event.body === 'Respuesta antigua conservada'), 'Legacy replies are visible in the same conversation')
+    assert.equal((await supervisor(`/field-work/reports/${oldReportId}`, 'PATCH', { status: 'Resuelto', reply: 'Nueva respuesta del supervisor', version: 1 })).status, 200)
+    const updatedThread = (await workerRequest(threadPath)).body
+    assert.equal(updatedThread.events.filter(event => event.body === 'Respuesta antigua conservada').length, 1, 'Legacy reply is preserved once after a new response')
+    assert.ok(updatedThread.events.some(event => event.body === 'Nueva respuesta del supervisor'))
+    assert.equal(updatedThread.reports.length, 2, 'Reports share one work conversation')
+    const readIds = updatedThread.events.filter(event => event.canMarkRead).map(event => event.notificationId)
+    assert.equal((await workerRequest(threadPath + '/read', 'PATCH', { ids: readIds }, { 'X-CSRF-Token': '' })).status, 403)
+    assert.equal((await workerRequest(threadPath + '/read', 'PATCH', { ids: readIds })).status, 200)
+    assert.equal((await workerRequest(threadPath)).body.unread, 0)
+    assert.equal((await manager(threadPath + '/read', 'PATCH', { ids: readIds })).status, 403)
+    const historyPath = `/work-conversations/${legacyOrder.body.id}`
+    for (let i = 0; i < 55; i++) await db.run('INSERT INTO worker_reports (id,user_id,employee_id,order_id,category,urgency,title,details,created_at) VALUES (?,?,?,?,?,?,?,?,?)', [`history-${i}`, storedReport.user_id, storedReport.employee_id, legacyOrder.body.id, 'Avance', 'Normal', `Historial ${i}`, 'Reporte anterior', new Date(Date.UTC(2000, 0, 1, 0, 0, i)).toISOString()])
+    const recent = (await manager(historyPath)).body
+    assert.equal(recent.events.length, 50)
+    assert.equal(recent.hasMore, true)
+    const olderWork = (await manager(historyPath + '?before=' + recent.events[0].id)).body
+    assert.equal(olderWork.events.length, 5)
+    assert.equal(olderWork.hasMore, false)
+    assert.equal(new Set([...recent.events, ...olderWork.events].map(event => event.id)).size, 55)
+    const pinnedReport = (await secretary(historyPath + '?focusReportId=history-0')).body
+    assert.equal(pinnedReport.focus.reportId, 'history-0', 'Old report can be attended without separating the conversation')
+    assert.equal(pinnedReport.events.length, 50)
+    assert.equal((await workerRequest(historyPath)).body.canReport, false, 'Historical work conversation is read-only when it is not the current assignment')
     for (const request of [secretary, supervisor, workerRequest]) {
       assert.equal((await request(`/orders/${own.body.id}`, 'DELETE', { version: deletionVersion })).status, 403, 'Only Gerente may delete an order')
     }

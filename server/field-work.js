@@ -4,6 +4,7 @@ import { saveAssessments, readAssessments } from './location-assessments.js'
 import { permissionRoles } from '../shared/access-policy.js'
 import { currentWorkerOrder } from './worker-assignment.js'
 import { validateMaterialRequest } from '../shared/material-request.js'
+import { notifyWorkConversation } from './work-conversations.js'
 
 const categories = ['Avance', 'Necesidad', 'Solicitud de material', 'Problema', 'Seguridad']
 const urgencies = ['Normal', 'Alta', 'Crítica']
@@ -135,6 +136,7 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
     })
     io?.to('reports:review').emit('field-report-updated', { reportId: id })
     io?.to('reports:review').emit('report-alerts-updated', { kind: 'created', reportId: id })
+    await notifyWorkConversation(io, dbQuery, orderId)
     return res.status(201).json({ id, message: 'Reporte enviado.' })
   }))
 
@@ -151,22 +153,27 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
     const { status, reply = '', version } = req.body ?? {}
     if (!['Pendiente', 'En atención', 'Resuelto'].includes(status) || !cleanText(reply, 2000) || !Number.isInteger(version)) return res.status(400).json({ message: 'Revisa el estado y la respuesta.' })
     const now = new Date().toISOString()
-    let reportOwner = null
+    let reportOrder = null
     const changed = await withTransaction(async tx => {
-      const report = await tx.get('SELECT user_id,title FROM worker_reports WHERE id=$1', [req.params.id])
+      const report = await tx.get('SELECT user_id,title,order_id,version,manager_reply,reviewed_at,reviewed_by,status FROM worker_reports WHERE id=$1', [req.params.id])
       const result = await tx.run(`UPDATE worker_reports SET status=$1,manager_reply=$2,reviewed_by=$3,reviewed_at=$4,version=version+1
         WHERE id=$5 AND version=$6`, [status, reply.trim(), req.user.id, now, req.params.id, version])
       if ((result.rowCount ?? result.changes) !== 1) return false
-      reportOwner = report.user_id
+      reportOrder = report.order_id
+      if (report.manager_reply) {
+        const previousReviewer = report.reviewed_by ? await tx.get('SELECT name,role FROM users WHERE id=$1', [report.reviewed_by]) : null
+        await tx.run(`INSERT INTO worker_report_notifications (id,user_id,report_id,report_version,title,reply,status,reviewer_name,reviewer_role,created_at,read_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) ON CONFLICT (report_id,report_version) DO NOTHING`, [randomUUID(), report.user_id, req.params.id, report.version, report.title, report.manager_reply, report.status, previousReviewer?.name ?? 'Equipo responsable', previousReviewer?.role ?? 'Equipo', report.reviewed_at ?? now])
+      }
       await tx.run(`INSERT INTO worker_report_notifications (id,user_id,report_id,report_version,title,reply,status,reviewer_name,reviewer_role,created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [randomUUID(), report.user_id, req.params.id, version + 1, report.title, reply.trim(), status, req.user.name, req.user.role, now])
       await tx.run('INSERT INTO security_events (id,user_id,event,created_at) VALUES ($1,$2,$3,$4)', [randomUUID(), req.user.id, `field_report_reviewed:${req.params.id}`, now])
       return true
     })
-    if (changed) io?.to(`user:${reportOwner}`).emit('field-report-updated', { reportId: req.params.id })
     if (changed) {
       io?.to('reports:review').emit('field-report-updated', { reportId: req.params.id })
       io?.to('reports:review').emit('report-alerts-updated', { kind: 'updated', reportId: req.params.id })
+      await notifyWorkConversation(io, dbQuery, reportOrder)
     }
     return changed ? res.json({ message: 'Seguimiento actualizado.' }) : res.status(409).json({ message: 'El reporte cambió o no existe. Actualiza los datos.' })
   }))

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FieldWorkData, LocationAssessment, WorkOrder, WorkerCheckIn } from '../../types'
 import { useFieldWork } from '../../hooks/useFieldWork'
 import { getApiBaseUrl } from '../../lib/dataService'
-import { FieldReportList } from './FieldReportList'
+import { WorkConversation } from './WorkConversation'
 import { OrderSiteInfo } from '../orders/OrderSiteInfo'
 import { OrderAttachments } from '../orders/OrderAttachments'
 
@@ -61,12 +61,11 @@ export function AccessRecords({ checkIns }: { checkIns: WorkerCheckIn[] }) {
 }
 
 function SelectedWorkRecord({ order, showLocations, onBack, onSaved, refreshToken, initialReportId }: { order: WorkOrder; showLocations: boolean; onBack: () => void; onSaved: () => void; refreshToken?: string; initialReportId?: string }) {
-  const [tab, setTab] = useState(initialReportId ? 'Reportes' : 'Resumen')
-  const [focusedReportId, setFocusedReportId] = useState(initialReportId)
-  const history = useFieldWork('work-record', order.id, focusedReportId)
+  const [tab, setTab] = useState(initialReportId ? 'Conversación' : 'Resumen')
+  const history = useFieldWork('work-record', order.id)
   const reloadHistory = history.reload
   useEffect(() => { if (refreshToken) void reloadHistory() }, [refreshToken, reloadHistory])
-  const tabs = showLocations ? ['Resumen', 'Llegadas', 'Fotos', 'Reportes'] : ['Resumen', 'Reportes']
+  const tabs = showLocations ? ['Resumen', 'Llegadas', 'Fotos', 'Conversación'] : ['Resumen', 'Conversación']
   const reload = () => { void history.reload(); onSaved() }
   return <section className="content-block work-record" aria-label={`Registro de ${order.client}`}>
     <button className="text-button record-back" onClick={onBack}>← Todas las obras</button>
@@ -78,9 +77,9 @@ function SelectedWorkRecord({ order, showLocations, onBack, onSaved, refreshToke
       {tab === 'Resumen' && <div className="panel"><h3>Resumen de la obra</h3><dl className="work-record-summary"><div><dt>Trabajador asignado</dt><dd>{order.assignedName || 'Sin asignar'}</dd></div><div><dt>Fecha prevista</dt><dd>{order.date || 'Por definir'}</dd></div><div><dt>Avance</dt><dd>{order.progress}%</dd></div><div><dt>Reportes pendientes</dt><dd>{history.data ? history.data.totals.pending : 'Consultando…'}</dd></div></dl><OrderSiteInfo site={showLocations ? order.site : { ...order.site, geofence: undefined }} />{order.observations && <p className="field-text">{order.observations}</p>}<OrderAttachments attachments={order.attachments} /></div>}
       {tab === 'Llegadas' && history.data && <ArrivalRecords data={history.data} orderId={order.id} />}
       {tab === 'Fotos' && history.data && <PhotoRecords data={history.data} orderId={order.id} showLocations={showLocations} />}
-      {tab === 'Reportes' && history.data && <>{focusedReportId && <button className="ghost-button" onClick={() => setFocusedReportId(undefined)}>Ver todos los reportes de esta obra</button>}<FieldReportList reports={history.data.reports} manager reload={reload} /></>}
+      {tab === 'Conversación' && <WorkConversation key={order.id} orderId={order.id} manager reload={reload} refreshToken={history.data?.generatedAt} focusReportId={initialReportId} />}
     </div>
-    {tab !== 'Resumen' && <p className="metric-explanation">Hasta 100 registros recientes por categoría, solo de esta obra.</p>}
+    {['Llegadas', 'Fotos'].includes(tab) && <p className="metric-explanation">Hasta 100 registros recientes por categoría, solo de esta obra.</p>}
   </section>
 }
 

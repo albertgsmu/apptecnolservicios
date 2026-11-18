@@ -28,6 +28,7 @@ import { managerMfaRequired } from './auth-policy.js'
 import { registerUsers } from './users.js'
 import { migrateDirectMessages, registerDirectMessages } from './direct-messages.js'
 import { migrateReportAlerts, registerReportAlerts } from './report-alerts.js'
+import { registerWorkConversations } from './work-conversations.js'
 import { registerDashboard } from './dashboard.js'
 import { activeRoleNames, permissionRoles } from '../shared/access-policy.js'
 import { migrateUserAccess } from './migrations/user-access.js'
@@ -654,6 +655,7 @@ const DUMMY_PASSWORD_HASH = await bcrypt.hash(randomUUID(), 12)
 registerUsers(app, { dbQuery, authRequired, allowRoles, asyncRoute, withTransaction })
 registerDirectMessages(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
 registerReportAlerts(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
+registerWorkConversations(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction })
 
 const mediaStorage = createOrderMediaStorage()
 await mediaStorage.importLegacy({ dbQuery, dbGet, dbRun })
