@@ -1,6 +1,7 @@
 // Authorization rules shared by the UI and API. The API remains authoritative.
 export const permissionRoles = Object.freeze({
   manageUsers: ['Gerente'],
+  directMessages: ['Gerente', 'Secretaria'],
   readInventory: ['Gerente', 'Supervisor', 'Secretaria'],
   manageInventory: ['Gerente', 'Supervisor'],
   createOrders: ['Gerente', 'Secretaria', 'Supervisor'],

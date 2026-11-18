@@ -8,5 +8,6 @@ export const menuItems: { key: View; label: string }[] = [
   { key: 'field-reports', label: 'Reportes de obra' },
   { key: 'inventory', label: 'Bodega e inventario' },
   { key: 'agenda', label: 'Agenda' },
+  { key: 'messages', label: 'Mensajes' },
   { key: 'reports', label: 'Reportes' },
 ]

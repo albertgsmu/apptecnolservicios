@@ -26,6 +26,7 @@ import { initializeOrders, registerOrders } from './orders.js'
 import { assertAuthSchema } from './database-readiness.js'
 import { managerMfaRequired } from './auth-policy.js'
 import { registerUsers } from './users.js'
+import { migrateDirectMessages, registerDirectMessages } from './direct-messages.js'
 import { registerDashboard } from './dashboard.js'
 import { activeRoleNames, permissionRoles } from '../shared/access-policy.js'
 import { migrateUserAccess } from './migrations/user-access.js'
@@ -200,6 +201,7 @@ const ensureDatabase = async () => {
   await migrateReportNotifications(dbRun)
   await migrateMaterialRequests({ dbRun, dbQuery, dbMode })
   await migrateInventory(dbRun)
+  await migrateDirectMessages(dbRun)
 
   const count = await dbGet('SELECT COUNT(*) AS total FROM users')
   if (Number(count.total) === 0) {
@@ -648,6 +650,7 @@ try {
 const DUMMY_PASSWORD_HASH = await bcrypt.hash(randomUUID(), 12)
 
 registerUsers(app, { dbQuery, authRequired, allowRoles, asyncRoute, withTransaction })
+registerDirectMessages(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
 
 const mediaStorage = createOrderMediaStorage()
 await mediaStorage.importLegacy({ dbQuery, dbGet, dbRun })

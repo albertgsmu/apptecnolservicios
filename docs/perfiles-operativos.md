@@ -6,7 +6,7 @@ La aplicación se manejará principalmente desde celulares. Los cambios de inter
 
 Las acciones de eliminación del Gerente deben ser accesibles desde el celular, con confirmación clara antes de borrar y mensajes que indiquen si la operación se completó o falló.
 
-El panel incorpora cabecera compacta, barra inferior con Inicio, Órdenes, Reportes y Más, y un menú con todas las secciones, creación de usuarios y cierre de sesión. En celular las tablas de personal y seguimiento se presentan como fichas; las órdenes permiten buscar por cliente, técnico o área y filtrar por estado. Los formularios usan controles táctiles y texto de entrada de 16 píxeles. La navegación y el ajuste de las seis secciones de Gerencia se verifican en Chrome con anchos de 320, 390, 430 y 768 píxeles mediante `server/panel-browser.test.js`. Contratos y Proveedores se retiraron del panel a solicitud del usuario.
+El panel incorpora cabecera compacta, barra inferior con Inicio, Órdenes, Reportes y Más, y un menú con todas las secciones, creación de usuarios y cierre de sesión. En celular las tablas de personal y seguimiento se presentan como fichas; las órdenes permiten buscar por cliente, técnico o área y filtrar por estado. Los formularios usan controles táctiles y texto de entrada de 16 píxeles. La navegación y el ajuste de las siete secciones de Gerencia se verifican en Chrome con anchos de 320, 390, 430 y 768 píxeles mediante `server/panel-browser.test.js`. Contratos y Proveedores se retiraron del panel a solicitud del usuario.
 
 ## Requisito de eliminación del Gerente
 
@@ -20,7 +20,13 @@ La eliminación general de personas y otros registros independientes sigue pendi
 
 ### Menús por perfil
 
-El Gerente dispone de **Dashboard**, **Trabajadores**, **Órdenes**, **Reportes de obra**, **Bodega e inventario** y **Reportes**. No tiene una sección Secretaría ni una agenda duplicada de sus órdenes. El perfil **Secretaría** se mantiene como usuario independiente, con sus permisos administrativos limitados. En su sesión, **Agenda** muestra los trabajos abiertos por fecha prevista; el nombre describe su función, no un rol. Los roles, las cuentas y las secciones del menú son conceptos separados.
+El Gerente dispone de **Dashboard**, **Trabajadores**, **Órdenes**, **Reportes de obra**, **Bodega e inventario**, **Mensajes** y **Reportes**. No tiene una sección Secretaría ni una agenda duplicada de sus órdenes. El perfil **Secretaría** se mantiene como usuario independiente, con sus permisos administrativos limitados. En su sesión, **Agenda** muestra los trabajos abiertos por fecha prevista; el nombre describe su función, no un rol. Los roles, las cuentas y las secciones del menú son conceptos separados.
+
+### Mensajes entre Gerente y Secretaría
+
+Ambos perfiles disponen de **Mensajes**, con contactos del otro perfil, conversaciones privadas, historial paginado y estados Enviado/Leído. El contador de mensajes sin leer aparece en el menú y, en celular, en el botón del menú y Más. Los avisos se actualizan dentro de la aplicación mediante Socket.IO, con recuperación por consulta periódica y al volver a la pestaña. La lectura se confirma únicamente para los mensajes recibidos cargados en la conversación activa y visible.
+
+Solo los participantes pueden consultar una conversación o confirmar sus lecturas. Si hay varias cuentas de Secretaría, sus conversaciones permanecen separadas. No tienen acceso Supervisor ni Trabajador. Los envíos requieren sesión y CSRF; los identificadores de envío evitan mensajes duplicados al reintentar tras una falla de red. La migración aditiva `013-direct-messages` crea la tabla y sus índices durante el inicio del servidor, conservando los registros existentes. Las pruebas cubren permisos, privacidad, lecturas, reintentos, historial y avisos entre sesiones.
 
 ### Control de trabajadores
 

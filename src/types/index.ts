@@ -1,6 +1,6 @@
 export type Role = 'Gerente' | 'Secretaria' | 'Supervisor' | 'Trabajador'
 export type ManagedRole = Exclude<Role, 'Gerente'>
-export type View = 'inventory' | 'dashboard' | 'workers' | 'orders' | 'agenda' | 'reports' | 'my-work' | 'field-reports'
+export type View = 'messages' | 'inventory' | 'dashboard' | 'workers' | 'orders' | 'agenda' | 'reports' | 'my-work' | 'field-reports'
 export type EmployeeStatus = 'Activo' | 'Vacaciones' | 'Licencia' | 'Inactivo'
 export type ApplicantStatus = 'Pendiente' | 'Aprobado' | 'Rechazado'
 export type OrderAttachment = {

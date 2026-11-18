@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import net from 'node:net'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createServer as createViteServer } from 'vite'
 import bcrypt from 'bcryptjs'
@@ -287,7 +287,7 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
       await waitFor(() => evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), 'Mobile menu opens')
       assert.ok(await evaluate("document.querySelector('.mobile-menu-sheet').contains(document.activeElement)"), 'Menu receives keyboard focus')
       assert.equal(await evaluate("[...document.querySelectorAll('.mobile-menu-item')].some(button => ['Secretaría', 'Agenda'].includes(button.textContent.trim().replace('›', '').trim()))"), false)
-      await evaluate(`document.querySelectorAll('.mobile-menu-item')[${['dashboard', 'workers', 'orders', 'field-reports', 'inventory', 'reports'].indexOf(view)}].click()`)
+      await evaluate(`document.querySelector('.mobile-menu-item[data-view="${view}"]').click()`)
       await see(heading)
       assert.equal(await evaluate("Boolean(document.querySelector('.mobile-menu-sheet'))"), false, 'Menu closes after navigation')
       const overflow = await evaluate(`({width: window.innerWidth, scroll: document.documentElement.scrollWidth, elements: [...document.querySelectorAll('main *')].filter(el => el.getBoundingClientRect().right > window.innerWidth + 1 && el.getBoundingClientRect().width > 0).map(el => el.className || el.tagName).slice(0,8)})`)
@@ -377,6 +377,42 @@ test('manager panel loads in Chrome, navigates every section, persists orders an
   await writeFile(path.join(artifacts, 'panel-verificado.png'), Buffer.from(screenshot.data, 'base64'))
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), 'No horizontal overflow on mobile')
+  const openMessages = () => evaluate("document.querySelector('.sidebar-nav button[data-view=messages]').click()")
+  const chooseContact = name => evaluate(`[...document.querySelectorAll('.chat-contact')].find(button => button.querySelector('strong').textContent === ${JSON.stringify(name)}).click()`)
+  await openMessages()
+  await see('Secretaria de prueba')
+  await chooseContact('Secretaria de prueba')
+  await fill('#direct-message-body', 'Secretaría, confirma la programación de mañana.')
+  await evaluate("document.querySelector('.chat-compose').requestSubmit()")
+  await see('Secretaría, confirma la programación de mañana.')
+  await send('Page.reload')
+  await see('Seguimiento de órdenes')
+  await openMessages()
+  await chooseContact('Secretaria de prueba')
+  await see('Secretaría, confirma la programación de mañana.')
+  await click('Dashboard')
+  const secretCookies = new Map()
+  const secretApi = async (route, method = 'GET', body) => {
+    const response = await fetch(origin + '/api' + route, { method, headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: [...secretCookies].map(([key, value]) => `${key}=${value}`).join('; '), ...(secretCookies.has('jp_csrf') ? { 'X-CSRF-Token': secretCookies.get('jp_csrf') } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    for (const header of response.headers.getSetCookie()) { const match = header.match(/^(jp_session|jp_csrf)=([^;]*)/); if (match) secretCookies.set(match[1], match[2]) }
+    assert.ok(response.ok, `Secretary API ${route}: ${response.status}`)
+    return response.json()
+  }
+  await secretApi('/auth/login', 'POST', { email: 'secretary.browser@example.test', password })
+  const managerChatContact = (await secretApi('/messages'))[0]
+  const liveReply = await secretApi(`/messages/${managerChatContact.id}`, 'POST', { body: 'Programación confirmada desde Secretaría.', clientId: randomUUID() })
+  await waitFor(() => evaluate("document.querySelector('.sidebar-nav button[data-view=messages] .message-count')?.textContent === '1'"), 'New message badge arrives without reloading')
+  await openMessages()
+  await chooseContact('Secretaria de prueba')
+  await see('Programación confirmada desde Secretaría.')
+  await waitFor(async () => (await secretApi(`/messages/${managerChatContact.id}`)).messages.find(message => message.id === liveReply.id)?.readAt, 'Read receipt reaches sender')
+  for (const width of [320, 390, 430]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
+    assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), `Chat fits ${width}px`)
+  }
+  const chatShot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  await writeFile(path.resolve('.local-secrets/chat-gerente-secretaria.png'), Buffer.from(chatShot.data, 'base64'))
+  await click('Dashboard')
   await click('Cerrar sesión')
   await see('Inicia sesión')
   await fill('#login-email', 'secretary.browser@example.test')

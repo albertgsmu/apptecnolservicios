@@ -19,6 +19,8 @@ import { roleViews } from './constants/roles'
 import { useApplicants } from './hooks/useApplicants'
 import { useOrders } from './hooks/useOrders'
 import { useAuth } from './hooks/useAuth'
+import { useMessages } from './hooks/useMessages'
+import { MessagesSection } from './features/messages/MessagesSection'
 import { useEmployees } from './hooks/useEmployees'
 import { CreateUserDialog } from './components/CreateUserDialog'
 import { MobileNavigation } from './components/MobileNavigation'
@@ -45,6 +47,7 @@ function App() {
   const [applicantFilter, setApplicantFilter] = useState<'Todos' | ApplicantStatus>('Todos')
 
   const { isLoggedIn, login, logout, completeLogin, sessionUser, restoreSession, isRestoringSession, sessionError } = useAuth()
+  const messages = useMessages(isLoggedIn && can(sessionUser?.role, 'directMessages') ? sessionUser!.email : null)
   const canWriteOrders = can(sessionUser?.role, 'createOrders')
   const canManageOrders = can(sessionUser?.role, 'manageOrders')
   const canUpdateOrders = can(sessionUser?.role, 'updateOrders')
@@ -104,6 +107,8 @@ function App() {
   const activeView = allowedViews.includes(selectedView) ? selectedView : allowedViews[0]
   const renderContent = () => {
     switch (activeView) {
+      case 'messages':
+        return <MessagesSection key={sessionUser?.email} contacts={messages.contacts} loading={messages.loading} error={messages.error} revision={messages.revision} reload={messages.reload} />
       case 'inventory':
         return <InventorySection key={sessionUser?.email} manager={sessionUser?.role === 'Gerente'} writable={can(sessionUser?.role, 'manageInventory')} />
       case 'my-work':
@@ -136,7 +141,7 @@ function App() {
     }
   }
 
-  const visibleMenuItems = sessionUser ? menuItems.filter((item) => (roleViews[sessionUser.role] ?? []).includes(item.key)) : []
+  const visibleMenuItems = sessionUser ? menuItems.filter((item) => (roleViews[sessionUser.role] ?? []).includes(item.key)).map(item => ({ ...item, unread: item.key === 'messages' ? messages.unread : 0 })) : []
   const navigate = (view: View) => {
     setRecordOrderId(undefined)
     setSelectedView(view)
@@ -178,12 +183,14 @@ function App() {
           {visibleMenuItems.map((item) => (
             <button
               key={item.key}
+              data-view={item.key}
               type="button"
               className={activeView === item.key ? 'nav-item active' : 'nav-item'}
               aria-current={activeView === item.key ? 'page' : undefined}
               onClick={() => navigate(item.key)}
             >
               {item.label}
+              {item.unread > 0 && <span className="message-count" aria-label={`${item.unread} mensajes sin leer`}>{item.unread}</span>}
             </button>
           ))}
         </nav>
@@ -244,7 +251,7 @@ function App() {
           <CreateOrderDialog assignees={assignees} canAssign={canManageOrders} onClose={closeNewOrder} onCreate={handleCreateOrder} />
         )}
 
-        {sessionUser?.role !== 'Trabajador' && activeView !== 'field-reports' && activeView !== 'inventory' && <DataStatus loading={overviewLoading} error={overviewError} generatedAt={overview?.generatedAt} onRefresh={refreshCompanyData} />}
+        {sessionUser?.role !== 'Trabajador' && activeView !== 'field-reports' && activeView !== 'inventory' && activeView !== 'messages' && <DataStatus loading={overviewLoading} error={overviewError} generatedAt={overview?.generatedAt} onRefresh={refreshCompanyData} />}
         {ordersLoading && <p role="status">Cargando órdenes...</p>}
         {ordersError && <div role="alert">{ordersError} <button onClick={() => void reloadOrders()}>Reintentar</button></div>}
         {sessionUser?.role === 'Trabajador' && !ordersLoading && !ordersError && <button className="text-button" onClick={() => void reloadOrders()}>Actualizar órdenes</button>}
