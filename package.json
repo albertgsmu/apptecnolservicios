@@ -26,6 +26,7 @@
     "test:panel": "node --test server/panel-browser.test.js",
     "test:database": "node --test server/database-readiness.test.js",
     "test:access": "node --test server/user-access.test.js",
+    "test:accounts": "node --test server/account-management.test.js",
     "db:seed": "node prisma/seed.js",
     "db:studio": "prisma studio",
     "deploy:check": "node scripts/deploy-check.mjs",

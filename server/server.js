@@ -26,6 +26,8 @@ import { initializeOrders, registerOrders } from './orders.js'
 import { assertAuthSchema } from './database-readiness.js'
 import { managerMfaRequired } from './auth-policy.js'
 import { registerUsers } from './users.js'
+import { registerAccountManagement, revokeAccountSockets } from './account-management.js'
+import { migrateAccountManagement } from './migrations/account-management.js'
 import { migrateDirectMessages, registerDirectMessages } from './direct-messages.js'
 import { migrateReportAlerts, registerReportAlerts } from './report-alerts.js'
 import { registerWorkConversations } from './work-conversations.js'
@@ -205,6 +207,7 @@ const ensureDatabase = async () => {
   await migrateInventory(dbRun)
   await migrateDirectMessages(dbRun)
   await migrateReportAlerts(dbRun)
+  await migrateAccountManagement({ dbRun, dbQuery, dbGet, dbMode })
 
   const count = await dbGet('SELECT COUNT(*) AS total FROM users')
   if (Number(count.total) === 0) {
@@ -248,6 +251,7 @@ const parseApplicant = (row) => ({
 
 const parseEmployee = (row) => ({
   id: row.id,
+  version: row.record_version,
   name: row.name,
   area: row.area,
   title: row.title,
@@ -295,20 +299,21 @@ const clearSessionCookies = (res) => {
   res.clearCookie(CSRF_COOKIE, cookieOptions(false))
 }
 
-const issueSession = async (res, userId, status, ttlMs, passwordOnly = false) => {
+const issueSession = async (res, userId, status, ttlMs, passwordOnly = false, accountVersion) => {
   const sessionToken = `${passwordOnly ? 'test-' : ''}${createOpaqueToken()}`
   const csrfToken = createCsrfToken()
   const now = new Date()
   const expiresAt = new Date(now.getTime() + ttlMs)
   await dbRun('DELETE FROM auth_sessions WHERE expires_at <= $1', [now.toISOString()])
-  await dbRun(
-    'INSERT INTO auth_sessions (token_hash, user_id, csrf_hash, status, expires_at, created_at, last_seen_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [hashOpaqueToken(sessionToken), userId, hashOpaqueToken(csrfToken), status, expiresAt.toISOString(), now.toISOString(), now.toISOString()],
+  const inserted = await dbRun(
+    'INSERT INTO auth_sessions (token_hash, user_id, csrf_hash, status, expires_at, created_at, last_seen_at, account_version) SELECT $1, id, $3, $4, $5, $6, $7, account_version FROM users WHERE id=$2 AND account_version=$8 AND access_blocked=FALSE AND archived_at IS NULL',
+    [hashOpaqueToken(sessionToken), userId, hashOpaqueToken(csrfToken), status, expiresAt.toISOString(), now.toISOString(), now.toISOString(), accountVersion],
   )
+  if ((inserted.rowCount ?? inserted.changes) !== 1) throw Object.assign(new Error('Account changed'), { code: 'SESSION_ACCOUNT_CHANGED' })
   setSessionCookies(res, sessionToken, csrfToken, ttlMs)
 }
 
-const createSessionCredentials = (userId, status, ttlMs) => {
+const createSessionCredentials = (userId, status, ttlMs, accountVersion) => {
   const sessionToken = createOpaqueToken()
   const csrfToken = createCsrfToken()
   const now = new Date()
@@ -318,6 +323,7 @@ const createSessionCredentials = (userId, status, ttlMs) => {
     tokenHash: hashOpaqueToken(sessionToken),
     csrfHash: hashOpaqueToken(csrfToken),
     userId,
+    accountVersion,
     status,
     expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
     createdAt: now.toISOString(),
@@ -325,18 +331,22 @@ const createSessionCredentials = (userId, status, ttlMs) => {
   }
 }
 
-const insertSessionCredentials = (tx, credentials) => tx.run(
-  `INSERT INTO auth_sessions (token_hash, user_id, csrf_hash, status, expires_at, created_at, last_seen_at)
-   VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-  [
-    credentials.tokenHash,
-    credentials.userId,
-    credentials.csrfHash,
-    credentials.status,
-    credentials.expiresAt,
-    credentials.createdAt,
-  ],
-)
+const insertSessionCredentials = async (tx, credentials) => {
+  const inserted = await tx.run(
+    `INSERT INTO auth_sessions (token_hash, user_id, csrf_hash, status, expires_at, created_at, last_seen_at, account_version)
+     SELECT $1, id, $3, $4, $5, $6, $6, account_version FROM users WHERE id=$2 AND account_version=$7 AND access_blocked=FALSE AND archived_at IS NULL`,
+    [
+      credentials.tokenHash,
+      credentials.userId,
+      credentials.csrfHash,
+      credentials.status,
+      credentials.expiresAt,
+      credentials.createdAt,
+      credentials.accountVersion,
+    ],
+  )
+  if ((inserted.rowCount ?? inserted.changes) !== 1) throw Object.assign(new Error('Account changed'), { code: 'SESSION_ACCOUNT_CHANGED' })
+}
 
 const sessionRequired = (...allowedStatuses) => async (req, res, next) => {
   const sessionToken = readCookie(req.headers.cookie, SESSION_COOKIE)
@@ -349,12 +359,13 @@ const sessionRequired = (...allowedStatuses) => async (req, res, next) => {
 
   try {
     const session = await dbGet(
-      `SELECT s.token_hash, s.csrf_hash, s.status, s.expires_at,
+      `SELECT s.token_hash, s.csrf_hash, s.status, s.expires_at, u.account_version,
               u.id, u.email, u.name, u.role, u.must_change_password,
               u.mfa_enabled, u.mfa_secret_encrypted, u.mfa_pending_secret_encrypted,
               u.mfa_last_counter
        FROM auth_sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = $1 AND s.expires_at > $2`,
+       WHERE s.token_hash = $1 AND s.expires_at > $2 AND s.account_version=u.account_version AND u.access_blocked=FALSE AND u.archived_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM user_employees ue JOIN employees e ON e.id=ue.employee_id WHERE ue.user_id=u.id AND e.status='Inactivo')`,
       [hashOpaqueToken(sessionToken), new Date().toISOString()],
     )
     if (!session || !allowedStatuses.includes(session.status)) {
@@ -653,6 +664,7 @@ try {
 const DUMMY_PASSWORD_HASH = await bcrypt.hash(randomUUID(), 12)
 
 registerUsers(app, { dbQuery, authRequired, allowRoles, asyncRoute, withTransaction })
+registerAccountManagement(app, { authRequired, allowRoles, asyncRoute, dbQuery, withTransaction, io })
 registerDirectMessages(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
 registerReportAlerts(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
 registerWorkConversations(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction })
@@ -686,7 +698,7 @@ app.post('/api/auth/login', loginRateLimit, asyncRoute(async (req, res) => {
 
   const user = validInput
     ? await dbGet(
-      'SELECT id, email, name, role, password_hash, must_change_password, mfa_enabled FROM users WHERE lower(email) = $1',
+      'SELECT id, email, name, role, password_hash, must_change_password, mfa_enabled, account_version, access_blocked, archived_at FROM users WHERE lower(email) = $1',
       [normalizedEmail],
     )
     : null
@@ -695,7 +707,7 @@ app.post('/api/auth/login', loginRateLimit, asyncRoute(async (req, res) => {
     user?.password_hash ?? DUMMY_PASSWORD_HASH,
   )
 
-  if (!user || !validPassword) {
+  if (!user || !validPassword || user.access_blocked || user.archived_at) {
     const retryAfterSeconds = await recordLoginFailure(req)
     res.set('Retry-After', String(retryAfterSeconds))
     return res.status(401).json({
@@ -708,13 +720,13 @@ app.post('/api/auth/login', loginRateLimit, asyncRoute(async (req, res) => {
   if (!activeRoleNames.includes(user.role)) {
     return res.status(403).json({ message: 'Este perfil ya no está habilitado. Contacta al Gerente para revisar tu cuenta.' })
   }
-  if (user.role === 'Gerente' && (MANAGER_MFA_REQUIRED || user.must_change_password)) {
+  if (user.must_change_password || (user.role === 'Gerente' && MANAGER_MFA_REQUIRED)) {
     const mustChangePassword = Boolean(user.must_change_password)
     const mfaEnabled = Boolean(user.mfa_enabled)
-    const status = mfaEnabled ? 'mfa_pending' : 'pending'
+    const status = !mustChangePassword && mfaEnabled ? 'mfa_pending' : 'pending'
     const nextStep = mustChangePassword ? 'change-password' : mfaEnabled ? 'verify-mfa' : 'enroll-mfa'
     const ttlMs = mfaEnabled ? MFA_SESSION_TTL_MS : PENDING_SESSION_TTL_MS
-    await issueSession(res, user.id, status, ttlMs)
+    await issueSession(res, user.id, status, ttlMs, false, user.account_version)
     await logSecurityEvent(user.id, 'manager_password_verified')
     return res.json({ user: publicUser(user), nextStep })
   }
@@ -723,21 +735,21 @@ app.post('/api/auth/login', loginRateLimit, asyncRoute(async (req, res) => {
     const dayStart = `${workDay()}T05:00:00.000Z`
     const dayEnd = new Date(Date.parse(dayStart) + 86400000).toISOString()
     const registeredToday = await dbGet("SELECT id FROM worker_check_ins WHERE user_id=$1 AND kind='login' AND location_status='captured' AND created_at >= $2 AND created_at < $3 LIMIT 1", [user.id, dayStart, dayEnd])
-    await issueSession(res, user.id, 'pending', PENDING_SESSION_TTL_MS)
+    await issueSession(res, user.id, 'pending', PENDING_SESSION_TTL_MS, false, user.account_version)
     return res.json({ user: publicUser(user), nextStep: 'location-required', locationNoticeRequired: !registeredToday })
   }
-  await issueSession(res, user.id, 'authenticated', SESSION_TTL_MS, user.role === 'Gerente' && !MANAGER_MFA_REQUIRED)
+  await issueSession(res, user.id, 'authenticated', SESSION_TTL_MS, user.role === 'Gerente' && !MANAGER_MFA_REQUIRED, user.account_version)
   await logSecurityEvent(user.id, 'login_succeeded')
   return res.json({ user: publicUser(user), nextStep: 'authenticated' })
 }))
 
-app.post('/api/auth/worker-location', pendingSessionRequired, allowRoles('Trabajador'), asyncRoute(async (req, res) => {
+app.post('/api/auth/worker-location', pendingSessionRequired, allowRoles('Trabajador'), requireChangedPassword, asyncRoute(async (req, res) => {
   const location = req.body?.location
   if (!validLocation(location)) return res.status(400).json({ message: 'No puedes entrar sin una ubicación actual válida. Activa el permiso y vuelve a intentar.' })
   const employee = await dbGet("SELECT e.id FROM employees e JOIN user_employees ue ON ue.employee_id=e.id WHERE ue.user_id=$1 AND e.status='Activo'", [req.user.id])
   if (!employee) return res.status(403).json({ message: 'Tu cuenta no está vinculada a un trabajador activo. Contacta al Gerente.' })
   const orders = await dbQuery("SELECT id,client,site_details FROM work_orders WHERE assigned_to=$1 AND status <> 'Cerrada'", [employee.id])
-  const credentials = createSessionCredentials(req.user.id, 'authenticated', SESSION_TTL_MS)
+  const credentials = createSessionCredentials(req.user.id, 'authenticated', SESSION_TTL_MS, req.authSession.account_version)
   const now = new Date().toISOString(), id = randomUUID()
   const promoted = await withTransaction(async tx => {
     const removed = await tx.run("DELETE FROM auth_sessions WHERE token_hash=$1 AND status='pending' AND expires_at > $2", [req.authSession.token_hash, now])
@@ -754,7 +766,7 @@ app.post('/api/auth/worker-location', pendingSessionRequired, allowRoles('Trabaj
   return res.json({ user: publicUser(req.user), nextStep: 'authenticated' })
 }))
 
-app.post('/api/auth/change-password', pendingSessionRequired, requireManager, asyncRoute(async (req, res) => {
+app.post('/api/auth/change-password', pendingSessionRequired, asyncRoute(async (req, res) => {
   const { password, confirmPassword } = req.body ?? {}
   if (
     typeof password !== 'string' ||
@@ -771,22 +783,19 @@ app.post('/api/auth/change-password', pendingSessionRequired, requireManager, as
   }
 
   const passwordHash = await bcrypt.hash(password, 12)
-  await dbRun(
-    'UPDATE users SET password_hash = $1, must_change_password = FALSE WHERE id = $2',
-    [passwordHash, req.user.id],
-  )
-  await dbRun(
-    'DELETE FROM auth_sessions WHERE user_id = $1 AND token_hash <> $2',
-    [req.user.id, req.authSession.token_hash],
-  )
-  io.in(`user:${req.user.id}`).disconnectSockets(true)
+  await withTransaction(async tx => {
+    const changed = await tx.run('UPDATE users SET password_hash=$1,must_change_password=FALSE,account_version=account_version+1 WHERE id=$2 AND account_version=$3 AND access_blocked=FALSE AND archived_at IS NULL', [passwordHash, req.user.id, req.authSession.account_version])
+    if ((changed.rowCount ?? changed.changes) !== 1) throw Object.assign(new Error('Account changed'), { code: 'SESSION_ACCOUNT_CHANGED' })
+    await tx.run('DELETE FROM auth_sessions WHERE user_id=$1 AND token_hash <> $2', [req.user.id, req.authSession.token_hash])
+    await tx.run('UPDATE auth_sessions SET account_version=$1,status=$2 WHERE token_hash=$3', [req.authSession.account_version + 1, req.user.role === 'Gerente' && MANAGER_MFA_REQUIRED && req.user.mfaEnabled ? 'mfa_pending' : 'pending', req.authSession.token_hash])
+  })
+  revokeAccountSockets(io, req.user.id)
   await logSecurityEvent(req.user.id, 'password_changed')
-  if (!MANAGER_MFA_REQUIRED) {
-    await dbRun('DELETE FROM auth_sessions WHERE token_hash = $1', [req.authSession.token_hash])
-    await issueSession(res, req.user.id, 'authenticated', SESSION_TTL_MS, true)
-    return res.json({ user: publicUser(req.user), nextStep: 'authenticated' })
-  }
-  return res.json({ nextStep: 'enroll-mfa' })
+  if (req.user.role === 'Gerente' && MANAGER_MFA_REQUIRED) return res.json({ nextStep: req.user.mfaEnabled ? 'verify-mfa' : 'enroll-mfa' })
+  await dbRun('DELETE FROM auth_sessions WHERE token_hash=$1', [req.authSession.token_hash])
+  const worker = req.user.role === 'Trabajador'
+  await issueSession(res, req.user.id, worker ? 'pending' : 'authenticated', worker ? PENDING_SESSION_TTL_MS : SESSION_TTL_MS, req.user.role === 'Gerente', req.authSession.account_version + 1)
+  return res.json({ user: publicUser(req.user), nextStep: worker ? 'location-required' : 'authenticated' })
 }))
 
 app.post('/api/auth/mfa/setup', pendingSessionRequired, requireManager, requireChangedPassword, asyncRoute(async (req, res) => {
@@ -823,7 +832,7 @@ app.post('/api/auth/mfa/enable', loginRateLimit, pendingSessionRequired, require
   }
 
   const recoveryCodes = Array.from({ length: 10 }, createRecoveryCode)
-  const credentials = createSessionCredentials(req.user.id, 'authenticated', SESSION_TTL_MS)
+  const credentials = createSessionCredentials(req.user.id, 'authenticated', SESSION_TTL_MS, req.authSession.account_version)
   const promoted = await withTransaction(async (tx) => {
     const update = await tx.run(
       `UPDATE users SET mfa_enabled = TRUE, mfa_secret_encrypted = mfa_pending_secret_encrypted,
@@ -877,7 +886,7 @@ app.post('/api/auth/mfa/verify', loginRateLimit, mfaSessionRequired, csrfRequire
     )
   }
 
-  const credentials = createSessionCredentials(req.user.id, 'authenticated', SESSION_TTL_MS)
+  const credentials = createSessionCredentials(req.user.id, 'authenticated', SESSION_TTL_MS, req.authSession.account_version)
   const verified = await withTransaction(async (tx) => {
     if (validCounter !== null) {
       const update = await tx.run(
@@ -960,16 +969,22 @@ app.patch('/api/employees/:id/status', authRequired, allowRoles(...permissionRol
     return res.status(404).json({ message: 'Empleado no encontrado.' })
   }
 
-  const updated = {
-    ...parseEmployee(employee),
-    status,
-  }
-
-  await dbRun('UPDATE employees SET status = $1, "updatedAt" = $2 WHERE id = $3', [status, new Date().toISOString(), req.params.id])
+  let accountId
+  await withTransaction(async tx => {
+    await tx.run('UPDATE employees SET status=$1,record_version=record_version+1,"updatedAt"=$2 WHERE id=$3', [status, new Date().toISOString(), req.params.id])
+    if (status === 'Inactivo') {
+      const linked = await tx.get('SELECT user_id FROM user_employees WHERE employee_id=$1', [req.params.id])
+      accountId = linked?.user_id
+      if (accountId) {
+        await tx.run('UPDATE users SET access_blocked=TRUE,account_version=account_version+1 WHERE id=$1', [accountId])
+        await tx.run('DELETE FROM auth_sessions WHERE user_id=$1', [accountId])
+      }
+    }
+  })
+  if (accountId) revokeAccountSockets(io, accountId)
   const employees = await dbQuery('SELECT * FROM employees ORDER BY "createdAt" DESC')
   io.to('employees:read').emit('employees:updated', employees.map(parseEmployee))
-
-  return res.json(updated)
+  return res.json(parseEmployee(await dbGet('SELECT * FROM employees WHERE id=$1', [req.params.id])))
 }))
 
 app.get('/api/applicants', authRequired, allowRoles(...permissionRoles.readApplicants), asyncRoute(async (_req, res) => {
@@ -1063,6 +1078,7 @@ app.use((error, _req, res, next) => {
   if (res.headersSent) {
     return next(error)
   }
+  if (error.code === 'SESSION_ACCOUNT_CHANGED') return res.status(401).json({ message: 'La cuenta cambi\u00f3. Inicia sesi\u00f3n de nuevo.' })
   console.error('API request failed:', error instanceof Error ? error.message : 'error desconocido')
   return res.status(500).json({ message: 'No se pudo completar la solicitud.' })
 })
@@ -1080,7 +1096,7 @@ io.use(async (socket, next) => {
     const session = await dbGet(
       `SELECT s.status, u.id, u.email, u.name, u.role, u.mfa_enabled, u.must_change_password
        FROM auth_sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = $1 AND s.expires_at > $2`,
+       WHERE s.token_hash = $1 AND s.expires_at > $2 AND s.account_version=u.account_version AND u.access_blocked=FALSE AND u.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM user_employees ue JOIN employees e ON e.id=ue.employee_id WHERE ue.user_id=u.id AND e.status='Inactivo')`,
       [hashOpaqueToken(sessionToken), new Date().toISOString()],
     )
     if (

@@ -71,7 +71,7 @@ export function LoginScreen({ onLogin, onAuthenticated }: LoginScreenProps) {
           onAuthenticated(result.user)
           return
         }
-        setStep('enroll-mfa')
+        setStep(result.nextStep === 'location-required' ? 'location-required' : result.nextStep === 'verify-mfa' ? 'verify-mfa' : 'enroll-mfa')
         setNewPassword('')
         setConfirmPassword('')
         return

@@ -77,11 +77,20 @@ La API usa `DATABASE_URL` para PostgreSQL. Si está configurado pero la conexió
 
 Las cuentas nuevas se crean desde **Crear usuario** en el panel, disponible para un Gerente autenticado. Las contraseñas se guardan con hash; el registro público no permite asignar roles ni crear cuentas.
 
+En **Trabajadores → Cuentas → Gestionar**, Gerencia puede editar nombre y correo, y el área, cargo y turno de trabajadores vinculados. Las fichas sin usuario aparecen debajo y también se pueden editar.
+
+- **Bloquear acceso** impide nuevos ingresos y cierra las sesiones abiertas. **Habilitar acceso** revierte el bloqueo.
+- **Cerrar todas las sesiones** obliga a ingresar de nuevo, conservando la contraseña.
+- **Restablecer contraseña** genera una clave temporal que se muestra una sola vez; exige cambiarla al ingresar. El trabajador debe registrar su ubicación después del cambio.
+- **Dar de baja** bloquea el acceso y desactiva la ficha, conservando órdenes, reportes y conversaciones. **Reactivar cuenta** habilita la cuenta y la ficha.
+
+Estas acciones requieren confirmación y permisos de Gerente. La cuenta de Gerencia está protegida contra estas operaciones. Las modificaciones usan versiones para rechazar datos antiguos; los bloqueos y cambios de contraseña invalidan sesiones en el servidor y avisan a los navegadores conectados. La migración `015-account-management` agrega los campos de control sin borrar registros y bloquea las cuentas vinculadas a fichas previamente inactivas.
+
 ## Seguridad de acceso
 
 - El servidor resuelve el rol desde la cuenta y comprueba los permisos en cada endpoint. No se confía en un rol enviado por el navegador.
 - La cuenta Gerente ingresa con correo y contraseña, sin QR ni código de autenticador. TOTP solo se exige si se configura `MANAGER_MFA_REQUIRED=true`; en ese caso, su secreto se cifra con AES-256-GCM y los códigos de recuperación se guardan como hashes de un solo uso.
-- Las contraseñas temporales de Gerente fuerzan cambio antes de continuar. El primer acceso también exige enrolar una app autenticadora.
+- Las contraseñas temporales fuerzan cambio antes de continuar. El autenticador de Gerente solo se exige cuando `MANAGER_MFA_REQUIRED=true`.
 - Las sesiones son tokens aleatorios opacos; la base guarda solo su hash. El navegador recibe una cookie `HttpOnly`, `Secure` en producción, y las mutaciones requieren CSRF.
 - Los errores de login no revelan si el correo existe. Los intentos se limitan por IP seudonimizada y se guardan en la base compartida: pausa progresiva hasta 30 segundos y bloqueo de 15 minutos tras 10 fallos. Socket.IO también valida la sesión vigente.
 - `MFA_ENCRYPTION_KEY` es obligatoria: una clave aleatoria de exactamente 32 bytes, codificada en base64. Genérala localmente con `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` y guárdala en `.env.local` o en el gestor de secretos del hosting. No la publiques ni la subas al repositorio. Respáldala de forma segura: si se pierde o se rota, los secretos TOTP existentes no se pueden descifrar.

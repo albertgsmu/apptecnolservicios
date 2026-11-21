@@ -1,0 +1,16 @@
+.account-toolbar,.account-list li { display:flex; gap:12px; align-items:center; justify-content:space-between; }
+.account-toolbar input { min-width:0; flex:1; padding:12px; }
+.account-list { padding:0; list-style:none; }
+.account-list li { padding:16px 0; border-bottom:1px solid #dce3eb; }
+.account-list li div { display:grid; gap:5px; min-width:0; overflow-wrap:anywhere; }
+.account-list li span { font-size:.9rem; color:#a9bdcc; }
+.account-fields { display:grid; gap:12px; }
+.account-fields label,.temporary-password label { display:grid; gap:6px; }
+.account-fields input,.account-fields select,.temporary-password input { width:100%; min-width:0; box-sizing:border-box; padding:12px; border:1px solid #cbd5e1; border-radius:8px; font:inherit; }
+.account-actions { display:flex; flex-wrap:wrap; gap:10px; margin:20px 0; padding-top:20px; border-top:1px solid #dce3eb; }
+.account-confirm,.temporary-password { padding:16px; margin:16px 0; border:1px solid #e3bb58; border-radius:12px; background:#fff9e8; }
+.account-dialog { overflow-wrap:anywhere; padding:24px; width:min(100%,640px); box-sizing:border-box; }
+.account-dialog .account-confirm,.account-dialog .temporary-password { color:#422f07; }
+.workers-hub-tabs { overflow-x:auto; }
+.workers-hub-tabs button { flex-shrink:0; }
+@media(max-width:600px) { .account-toolbar { flex-direction:column; align-items:stretch; } .account-list li { align-items:flex-start; } .account-actions { display:grid; } .account-dialog .modal-actions { flex-wrap:wrap; } }

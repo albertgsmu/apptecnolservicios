@@ -4,6 +4,7 @@ import { apiRequest, getApiBaseUrl } from '../lib/dataService'
 import type { EmployeeStatus } from '../types'
 
 export type EmployeeRow = {
+  version: number
   id: string
   name: string
   area: string

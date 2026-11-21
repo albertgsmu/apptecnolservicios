@@ -60,6 +60,10 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   }
 
   if (!response.ok) {
+    if (response.status === 401 && sessionUser) {
+      sessionUser = null
+      window.dispatchEvent(new Event('jp-session-expired'))
+    }
     const content = await response.text()
     let message = `La API respondió con un error (${response.status}).`
     try {

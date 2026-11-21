@@ -121,6 +121,7 @@ function App() {
         return <><DataStatus loading={fieldWork.loading} error={fieldWork.error} generatedAt={fieldWork.data?.generatedAt} onRefresh={refreshFieldWork} label="Reportes de obra" actionLabel="Actualizar reportes" /><FieldWorkPanel key={`${sessionUser?.email}:${recordOrderId ?? ''}:${recordReportId ?? ''}`} initialOrderId={recordOrderId} initialReportId={recordReportId} manager={sessionUser?.role !== 'Trabajador'} showLocations={sessionUser?.role === 'Gerente' || sessionUser?.role === 'Trabajador'} orders={orders} data={fieldWork.data} reload={refreshFieldWork} /></>
       case 'workers':
         return <WorkersHub key={sessionUser?.email} canReadEmployees={canReadEmployees} data={overview} fieldWork={fieldWork.data}
+          onAccountsChanged={() => { reloadEmployees(); void reloadOverview() }}
           onCreateWorker={can(sessionUser?.role, 'manageUsers') ? () => openCreateUser('Trabajador') : undefined}
           employeeProps={{ searchTerm, statusFilter, onSearchChange: setSearchTerm, onStatusChange: setStatusFilter,
             onUpdateStatus: handleEmployeeStatusChange, canManageEmployees: can(sessionUser?.role, 'manageEmployees'),

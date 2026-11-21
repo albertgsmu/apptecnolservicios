@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react'
-import { getSessionInfo, loginUser, logoutUser, saveSessionUser } from '../lib/dataService'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { io } from 'socket.io-client'
+import { getApiBaseUrl, getSessionInfo, loginUser, logoutUser, saveSessionUser } from '../lib/dataService'
 import type { SessionUser } from '../types'
 
 export function useAuth() {
@@ -8,6 +9,13 @@ export function useAuth() {
   const [isRestoringSession, setIsRestoringSession] = useState(true)
   const [sessionError, setSessionError] = useState('')
   const sessionVersion = useRef(0)
+  useEffect(() => {
+    const expire = () => { sessionVersion.current++; setSessionUser(null); setIsLoggedIn(false); saveSessionUser(null) }
+    window.addEventListener('jp-session-expired', expire)
+    const socket = isLoggedIn ? io(getApiBaseUrl() || undefined, { transports: ['websocket'], withCredentials: true }) : null
+    socket?.on('session-revoked', expire)
+    return () => { window.removeEventListener('jp-session-expired', expire); socket?.disconnect() }
+  }, [isLoggedIn])
 
   const login = useCallback(async ({ email, password }: { email: string; password: string }) => {
     sessionVersion.current++
