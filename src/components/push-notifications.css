@@ -1,0 +1,6 @@
+.push-controls { border:1px solid #293b4d; border-radius:14px; padding:12px 16px; margin-bottom:16px; }
+.push-controls p { color:#b3c5d5; line-height:1.5; overflow-wrap:anywhere; }
+.push-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.report-followup { margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid #34465a; }
+.report-followup input { width:100%; min-width:0; box-sizing:border-box; }
+@media(max-width:600px) { .push-actions { display:grid; } }

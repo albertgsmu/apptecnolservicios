@@ -86,6 +86,22 @@ En **Trabajadores → Cuentas → Gestionar**, Gerencia puede editar nombre y co
 
 Estas acciones requieren confirmación y permisos de Gerente. La cuenta de Gerencia está protegida contra estas operaciones. Las modificaciones usan versiones para rechazar datos antiguos; los bloqueos y cambios de contraseña invalidan sesiones en el servidor y avisan a los navegadores conectados. La migración `015-account-management` agrega los campos de control sin borrar registros y bloquea las cuentas vinculadas a fichas previamente inactivas.
 
+## Seguimiento de reportes y notificaciones al celular
+
+Los reportes nuevos se asignan a una cuenta activa de Secretaría; si no hay, se usa Supervisor y después Gerente. Los plazos iniciales son 30 minutos para prioridad Crítica, 4 horas para Alta y 24 horas para Normal. En la conversación de cada obra, Secretaría, Supervisor y Gerente pueden seleccionar otro responsable y una fecha/hora futura de hasta 90 días. Las reasignaciones se registran y rechazan cambios basados en versiones antiguas.
+
+Si el plazo vence sin resolver, se avisa al responsable y a Gerencia: cada 30 minutos para Crítica, 60 para Alta y 4 horas para Normal. Si una cuenta responsable se bloquea o da de baja, la revisión busca otra cuenta activa. Resolver el reporte detiene los recordatorios. Los reportes abiertos anteriores reciben responsable y plazo inicial desde la instalación de la migración `016-report-followups-push`; el historial de obras y respuestas se conserva.
+
+En **Notificaciones del celular → Activar notificaciones**, cada persona autoriza su dispositivo. **Enviar prueba** permite comprobar la recepción. En iPhone/iPad, agregar primero la app a la pantalla de inicio y abrirla desde allí (iOS/iPadOS 16.4 o posterior). Android requiere navegador compatible y permiso de notificaciones. Documentación: [Web Push en Apple](https://webkit.org/blog/13878/), [suscripciones del navegador](https://developer.mozilla.org/en-US/docs/Web/API/PushManager/subscribe).
+
+Los avisos incluyen nuevos reportes, asignaciones, vencimientos y respuestas al trabajador. Los detalles privados no aparecen en la pantalla de bloqueo. Las claves VAPID se generan y persisten en la base; la clave privada y las credenciales de suscripción se cifran con `MFA_ENCRYPTION_KEY`. Conservar esa clave en Render. Al cerrar sesión se desvincula este dispositivo; bloquear una cuenta o cambiar su versión invalida sus suscripciones hasta activarlas de nuevo. No se almacenan páginas autenticadas ni respuestas de API en caché.
+
+La cola de envío queda en PostgreSQL, con reintentos limitados y limpieza de suscripciones vencidas. La entrega depende del permiso, conexión y servicio del navegador; poner una prueba en envío no confirma que el usuario la haya recibido.
+
+En producción hay una revisión por minuto mientras el proceso está activo. El workflow `.github/workflows/report-reminders.yml` ejecuta además una revisión aproximadamente cada 5 minutos y permite ejecución manual, para no depender de que Render mantenga el proceso despierto. Verifica identidad GitHub OIDC, identificador del repositorio, archivo de workflow y rama main; no usa un secreto compartido. GitHub puede retrasar o suspender ejecuciones programadas; los avisos no son una garantía de atención inmediata. En desarrollo y pruebas no se envían notificaciones automáticamente, salvo `PUSH_DELIVERY_ENABLED=true`.
+
+Validación: `npm run test:followups`, `npm run test:panel` y `node scripts/verify-report-followups.mjs`. El último comando prueba la migración en un esquema PostgreSQL temporal, dentro de una transacción que se revierte.
+
 ## Seguridad de acceso
 
 - El servidor resuelve el rol desde la cuenta y comprueba los permisos en cada endpoint. No se confía en un rol enviado por el navegador.

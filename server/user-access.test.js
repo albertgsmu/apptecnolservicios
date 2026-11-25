@@ -214,13 +214,13 @@ test('only manager creates accounts; worker sees and updates only own orders; se
         fieldReportId = report.body.id
         assert.equal((await request('/report-alerts')).status, 403, 'Workers cannot browse staff alerts')
         const reportAlerts = (await manager('/report-alerts')).body
-        assert.deepEqual(reportAlerts.totals, { total: 1, unread: 1, pending: 1, critical: 0, high: 1 })
+        assert.deepEqual(reportAlerts.totals, { total: 1, unread: 1, pending: 1, critical: 0, high: 1, overdue: 0 })
         assert.equal(reportAlerts.reports[0].id, fieldReportId)
         assert.equal(reportAlerts.reports[0].orderId, own.body.id)
         assert.equal(reportAlerts.reports[0].latitude, undefined, 'Alert payload does not expose location')
         assert.equal((await manager(`/report-alerts/${fieldReportId}/read`, 'PATCH', undefined, { 'X-CSRF-Token': '' })).status, 403)
         assert.equal((await manager(`/report-alerts/${fieldReportId}/read`, 'PATCH')).status, 200)
-        assert.deepEqual((await manager('/report-alerts')).body.totals, { total: 1, unread: 0, pending: 1, critical: 0, high: 1 }, 'Reading an alert does not resolve the problem')
+        assert.deepEqual((await manager('/report-alerts')).body.totals, { total: 1, unread: 0, pending: 1, critical: 0, high: 1, overdue: 0 }, 'Reading an alert does not resolve the problem')
         assert.equal((await manager('/report-alerts/missing/read', 'PATCH')).status, 404)
         assert.equal((await request(`/report-alerts/${fieldReportId}/read`, 'PATCH')).status, 403)
         assert.deepEqual((await request('/field-work')).body.reports[0].materials, reportDraft.materials)

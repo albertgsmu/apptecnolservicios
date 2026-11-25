@@ -4,6 +4,7 @@ import { apiRequest, getApiBaseUrl } from '../../lib/dataService'
 import type { FieldWorkData, MaterialRequestLine } from '../../types'
 import { WorkerReportComposer } from './WorkerReportComposer'
 import { ReportMaterials } from './MaterialRequestFields'
+import { ReportFollowup } from './ReportFollowup'
 import './WorkConversation.css'
 
 type Event = { id: string; reportId: string; kind: 'report' | 'reply'; createdAt: string; authorName: string; role: string; body: string; title: string; category: string; urgency: string; status: string; materials: MaterialRequestLine[]; requestedAction: string; notificationId: string | null; canMarkRead: boolean }
@@ -24,12 +25,12 @@ function ReplyComposer({ report, reload }: { report: Report; reload: () => void 
   const [error, setError] = useState('')
   const [version, setVersion] = useState(report.version)
   const changed = version !== report.version
-  return <form className="field-form work-reply-composer" onSubmit={async event => {
+  return <>{report.status !== 'Resuelto' && <ReportFollowup reportId={report.id} refreshVersion={report.version} reload={reload} />}<form className="field-form work-reply-composer" onSubmit={async event => {
     event.preventDefault(); if (changed) return; setBusy(true); setError('')
     try { await apiRequest(`/field-work/reports/${report.id}`, { method: 'PATCH', body: JSON.stringify({ status, reply, version }) }); setReply(''); setVersion(version + 1); reload() }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo enviar la respuesta.'); reload() }
     finally { setBusy(false) }
-  }}>{changed && <div role="status"><p>El seguimiento cambió. Tu borrador se conserva.</p><button type="button" className="ghost-button" onClick={() => { setVersion(report.version); setStatus(report.status); setError('') }}>Actualizar estado y conservar texto</button></div>}<label>Estado<select aria-label="Estado del reporte" value={status} disabled={busy} onChange={event => setStatus(event.target.value)}>{['Pendiente', 'En atención', 'Resuelto'].map(value => <option key={value}>{value}</option>)}</select></label><label>Respuesta en esta obra<textarea aria-label="Respuesta en la conversación" rows={3} maxLength={2000} required disabled={busy} value={reply} onChange={event => setReply(event.target.value)} placeholder="Escribe la solución o las indicaciones…" /></label>{error && <p role="alert">{error}</p>}<button className="primary-button" disabled={busy || changed}>{busy ? 'Enviando…' : 'Enviar respuesta'}</button></form>
+  }}>{changed && <div role="status"><p>El seguimiento cambió. Tu borrador se conserva.</p><button type="button" className="ghost-button" onClick={() => { setVersion(report.version); setStatus(report.status); setError('') }}>Actualizar estado y conservar texto</button></div>}<label>Estado<select aria-label="Estado del reporte" value={status} disabled={busy} onChange={event => setStatus(event.target.value)}>{['Pendiente', 'En atención', 'Resuelto'].map(value => <option key={value}>{value}</option>)}</select></label><label>Respuesta en esta obra<textarea aria-label="Respuesta en la conversación" rows={3} maxLength={2000} required disabled={busy} value={reply} onChange={event => setReply(event.target.value)} placeholder="Escribe la solución o las indicaciones…" /></label>{error && <p role="alert">{error}</p>}<button className="primary-button" disabled={busy || changed}>{busy ? 'Enviando…' : 'Enviar respuesta'}</button></form></>
 }
 
 function ConversationEvent({ event, onReply }: { event: Event; onReply?: (id: string) => void }) {
@@ -108,11 +109,11 @@ export function WorkConversation({ orderId, manager, reload, refreshToken, focus
   </section>
 }
 
-export function WorkerConversations({ currentOrderId, data, reload }: { currentOrderId?: string; data: FieldWorkData | null; reload: () => void }) {
+export function WorkerConversations({ currentOrderId, data, reload, initialOrderId, initialReportId }: { currentOrderId?: string; data: FieldWorkData | null; reload: () => void; initialOrderId?: string; initialReportId?: string }) {
   const [works, setWorks] = useState<Work[]>([])
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
   useEffect(() => { let active = true; apiRequest<Work[]>('/work-conversations').then(result => { if (active) { setWorks(result); setError('') } }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'No se pudo cargar el historial de obras.') }); return () => { active = false } }, [data?.generatedAt])
-  const orderId = selected || currentOrderId || works[0]?.id
-  return <section className="worker-conversations"><h2>Conversación e historial por obra</h2>{error && <p role="alert">{error}</p>}{works.length > 1 && <label>Obra<select aria-label="Obra de la conversación" value={orderId ?? ''} onChange={event => setSelected(event.target.value)}>{works.map(work => <option key={work.id} value={work.id}>{work.client} · {work.address} · {work.id.slice(0, 11)}</option>)}</select></label>}{orderId ? <WorkConversation key={orderId} orderId={orderId} manager={false} reload={reload} refreshToken={data?.generatedAt} /> : <p>No tienes obras con conversación disponible.</p>}</section>
+  const orderId = selected || initialOrderId || currentOrderId || works[0]?.id
+  return <section className="worker-conversations"><h2>Conversación e historial por obra</h2>{error && <p role="alert">{error}</p>}{works.length > 1 && <label>Obra<select aria-label="Obra de la conversación" value={orderId ?? ''} onChange={event => setSelected(event.target.value)}>{works.map(work => <option key={work.id} value={work.id}>{work.client} · {work.address} · {work.id.slice(0, 11)}</option>)}</select></label>}{orderId ? <WorkConversation key={orderId} orderId={orderId} manager={false} focusReportId={orderId === initialOrderId ? initialReportId : undefined} reload={reload} refreshToken={data?.generatedAt} /> : <p>No tienes obras con conversación disponible.</p>}</section>
 }

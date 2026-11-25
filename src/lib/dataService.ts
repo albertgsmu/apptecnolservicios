@@ -166,7 +166,12 @@ export async function verifyMfaLogin(payload: { code?: string; recoveryCode?: st
 
 export async function logoutUser() {
   try {
-    await apiRequest<void>('/auth/logout', { method: 'POST' })
+    let pushEndpoint: string | undefined
+    try {
+      const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration('/') : undefined
+      pushEndpoint = (await registration?.pushManager.getSubscription())?.endpoint
+    } catch { /* Notification support must not prevent signing out. */ }
+    await apiRequest<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ pushEndpoint }) })
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 401) {
       throw error

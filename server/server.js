@@ -28,6 +28,9 @@ import { managerMfaRequired } from './auth-policy.js'
 import { registerUsers } from './users.js'
 import { registerAccountManagement, revokeAccountSockets } from './account-management.js'
 import { migrateAccountManagement } from './migrations/account-management.js'
+import { migrateReportFollowups, registerReportFollowups } from './report-followups.js'
+import { createPushService, registerPushNotifications } from './push-notifications.js'
+import { registerReminderScheduler } from './reminder-scheduler.js'
 import { migrateDirectMessages, registerDirectMessages } from './direct-messages.js'
 import { migrateReportAlerts, registerReportAlerts } from './report-alerts.js'
 import { registerWorkConversations } from './work-conversations.js'
@@ -208,6 +211,7 @@ const ensureDatabase = async () => {
   await migrateDirectMessages(dbRun)
   await migrateReportAlerts(dbRun)
   await migrateAccountManagement({ dbRun, dbQuery, dbGet, dbMode })
+  await migrateReportFollowups({ dbRun, dbQuery, withTransaction })
 
   const count = await dbGet('SELECT COUNT(*) AS total FROM users')
   if (Number(count.total) === 0) {
@@ -643,7 +647,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
 }))
 app.use((req, res, next) => {
-  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.path !== '/api/reminders/tick') {
     const origin = req.get('origin')
     if (!origin || !isAllowedOrigin(origin)) {
       return res.status(403).json({ message: 'Origen no autorizado.' })
@@ -664,6 +668,11 @@ try {
 const DUMMY_PASSWORD_HASH = await bcrypt.hash(randomUUID(), 12)
 
 registerUsers(app, { dbQuery, authRequired, allowRoles, asyncRoute, withTransaction })
+const pushDeliveryEnabled = process.env.NODE_ENV !== 'test' && (process.env.NODE_ENV === 'production' || process.env.PUSH_DELIVERY_ENABLED === 'true')
+const pushService = createPushService({ dbGet, dbRun, dbQuery, withTransaction, io, autoWake: pushDeliveryEnabled })
+registerPushNotifications(app, { authRequired, asyncRoute, dbGet, dbRun, dbQuery, service: pushService })
+registerReportFollowups(app, { authRequired, allowRoles, asyncRoute, dbQuery, dbGet, withTransaction, io, wake: pushService.wake })
+registerReminderScheduler(app, { asyncRoute, service: pushService })
 registerAccountManagement(app, { authRequired, allowRoles, asyncRoute, dbQuery, withTransaction, io })
 registerDirectMessages(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
 registerReportAlerts(app, { dbQuery, dbGet, authRequired, allowRoles, asyncRoute, withTransaction, io })
@@ -932,6 +941,7 @@ app.post('/api/auth/mfa/verify', loginRateLimit, mfaSessionRequired, csrfRequire
 }))
 
 app.post('/api/auth/logout', anySessionRequired, asyncRoute(async (req, res) => {
+  if (typeof req.body?.pushEndpoint === 'string') await dbRun('DELETE FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2', [req.body.pushEndpoint, req.user.id])
   await dbRun('DELETE FROM auth_sessions WHERE token_hash = $1', [req.authSession.token_hash])
   io.in(`user:${req.user.id}`).disconnectSockets(true)
   await logSecurityEvent(req.user.id, 'logout')
@@ -1070,7 +1080,7 @@ app.patch('/api/applicants/:id/status', authRequired, allowRoles(...permissionRo
 }))
 
 registerDashboard(app, { authRequired, allowRoles, asyncRoute, dbGet })
-registerFieldWork(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction, io })
+registerFieldWork(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction, io, wakePush: pushService.wake })
 registerInventory(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction })
 await registerWebHosting(app)
 
@@ -1137,3 +1147,7 @@ const startServer = (port) => new Promise((resolve, reject) => {
 })
 
 await startServer(DEFAULT_PORT)
+if (pushDeliveryEnabled) {
+  pushService.wake()
+  setInterval(pushService.wake, 60000).unref()
+}

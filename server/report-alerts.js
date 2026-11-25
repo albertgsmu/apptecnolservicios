@@ -15,13 +15,16 @@ export function registerReportAlerts(app, { authRequired, allowRoles, asyncRoute
       COALESCE(SUM(CASE WHEN r.urgency='Crítica' THEN 1 ELSE 0 END),0) AS critical,
       COALESCE(SUM(CASE WHEN r.urgency='Alta' THEN 1 ELSE 0 END),0) AS high
       FROM worker_reports r LEFT JOIN report_alert_reads a ON a.report_id=r.id AND a.user_id=$1 WHERE r.status <> 'Resuelto'`, [req.user.id])
-    const rows = await dbQuery(`SELECT r.id,r.order_id,r.title,r.category,r.urgency,r.status,r.created_at,e.name AS employee_name,o.client,a.read_at
+    const now = new Date().toISOString()
+    const overdue = await dbGet("SELECT COUNT(*) AS total FROM report_followups f JOIN worker_reports r ON r.id=f.report_id WHERE r.status <> 'Resuelto' AND f.due_at <= $1", [now])
+    const rows = await dbQuery(`SELECT r.id,r.order_id,r.title,r.category,r.urgency,r.status,r.created_at,e.name AS employee_name,o.client,a.read_at,f.assignee_id,f.due_at,u.name AS assignee_name
       FROM worker_reports r JOIN employees e ON e.id=r.employee_id JOIN work_orders o ON o.id=r.order_id
+      LEFT JOIN report_followups f ON f.report_id=r.id LEFT JOIN users u ON u.id=f.assignee_id
       LEFT JOIN report_alert_reads a ON a.report_id=r.id AND a.user_id=$1 WHERE r.status <> 'Resuelto'
       ORDER BY CASE r.urgency WHEN 'Crítica' THEN 0 WHEN 'Alta' THEN 1 ELSE 2 END,
       CASE WHEN a.read_at IS NULL THEN 0 ELSE 1 END,r.created_at DESC,r.id LIMIT 50`, [req.user.id])
     res.set('Cache-Control', 'private, no-store')
-    res.json({ totals: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number(value)])), reports: rows.map(row => ({ id: row.id, orderId: row.order_id, title: row.title, category: row.category, urgency: row.urgency, status: row.status, createdAt: row.created_at, employeeName: row.employee_name, client: row.client, unread: !row.read_at })) })
+    res.json({ totals: { ...Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number(value)])), overdue: Number(overdue.total) }, reports: rows.map(row => ({ id: row.id, orderId: row.order_id, title: row.title, category: row.category, urgency: row.urgency, status: row.status, createdAt: row.created_at, employeeName: row.employee_name, client: row.client, unread: !row.read_at, assigneeId: row.assignee_id, assigneeName: row.assignee_name, dueAt: row.due_at, overdue: Boolean(row.due_at && row.due_at <= now) })) })
   }))
   app.patch('/api/report-alerts/:id/read', authRequired, reviewers, asyncRoute(async (req, res) => {
     const report = await dbGet('SELECT id FROM worker_reports WHERE id=$1', [req.params.id])

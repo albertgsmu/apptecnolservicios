@@ -5,6 +5,7 @@ import { permissionRoles } from '../shared/access-policy.js'
 import { currentWorkerOrder } from './worker-assignment.js'
 import { validateMaterialRequest } from '../shared/material-request.js'
 import { notifyWorkConversation } from './work-conversations.js'
+import { createReportFollowup, queueNotice } from './report-followups.js'
 
 const categories = ['Avance', 'Necesidad', 'Solicitud de material', 'Problema', 'Seguridad']
 const urgencies = ['Normal', 'Alta', 'Crítica']
@@ -14,7 +15,7 @@ const publicSite = text => {
   catch { return { address: '', city: '', unit: '' } }
 }
 
-export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction, io }) {
+export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction, io, wakePush }) {
   const readPhotos = registerWorkerPhotos(app, { authRequired, allowRoles, asyncRoute, dbGet, dbQuery, withTransaction })
   const workerOnly = allowRoles('Trabajador')
   const readers = allowRoles(...permissionRoles.readFieldReports)
@@ -132,11 +133,13 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
     await withTransaction(async tx => {
       await tx.run(`INSERT INTO worker_reports (id,user_id,employee_id,order_id,category,urgency,title,details,requested_action,created_at,material_request)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [id, req.user.id, employee.id, orderId, category, urgency, title.trim(), details.trim(), requestedAction.trim(), now, JSON.stringify(materials.value)])
+      await createReportFollowup(tx, { id, urgency, now })
       await tx.run('INSERT INTO security_events (id,user_id,event,created_at) VALUES ($1,$2,$3,$4)', [randomUUID(), req.user.id, `field_report_created:${id}`, now])
     })
     io?.to('reports:review').emit('field-report-updated', { reportId: id })
     io?.to('reports:review').emit('report-alerts-updated', { kind: 'created', reportId: id })
     await notifyWorkConversation(io, dbQuery, orderId)
+    wakePush?.()
     return res.status(201).json({ id, message: 'Reporte enviado.' })
   }))
 
@@ -168,12 +171,14 @@ export function registerFieldWork(app, { authRequired, allowRoles, asyncRoute, d
       await tx.run(`INSERT INTO worker_report_notifications (id,user_id,report_id,report_version,title,reply,status,reviewer_name,reviewer_role,created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [randomUUID(), report.user_id, req.params.id, version + 1, report.title, reply.trim(), status, req.user.name, req.user.role, now])
       await tx.run('INSERT INTO security_events (id,user_id,event,created_at) VALUES ($1,$2,$3,$4)', [randomUUID(), req.user.id, `field_report_reviewed:${req.params.id}`, now])
+      await queueNotice(tx, { key: `reply:${req.params.id}:${version + 1}:${report.user_id}`, userId: report.user_id, reportId: req.params.id, kind: 'reply' })
       return true
     })
     if (changed) {
       io?.to('reports:review').emit('field-report-updated', { reportId: req.params.id })
       io?.to('reports:review').emit('report-alerts-updated', { kind: 'updated', reportId: req.params.id })
       await notifyWorkConversation(io, dbQuery, reportOrder)
+      wakePush?.()
     }
     return changed ? res.json({ message: 'Seguimiento actualizado.' }) : res.status(409).json({ message: 'El reporte cambió o no existe. Actualiza los datos.' })
   }))

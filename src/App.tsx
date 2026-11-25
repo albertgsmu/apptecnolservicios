@@ -5,6 +5,7 @@ import { ApplicantsPanel } from './components/ApplicantsPanel'
 import { BrandMark } from './components/BrandMark'
 import { LoginScreen } from './components/LoginScreen'
 import { WorkersHub } from './components/WorkersHub'
+import { PushNotifications } from './components/PushNotifications'
 import { menuItems } from './constants/navigation'
 import { useOverview } from './hooks/useOverview'
 import { DataStatus } from './components/DataStatus'
@@ -52,6 +53,17 @@ function App() {
   const { isLoggedIn, login, logout, completeLogin, sessionUser, restoreSession, isRestoringSession, sessionError } = useAuth()
   const messages = useMessages(isLoggedIn && can(sessionUser?.role, 'directMessages') ? sessionUser!.email : null)
   const reportAlerts = useReportAlerts(isLoggedIn && can(sessionUser?.role, 'reviewFieldReports') ? sessionUser!.email : null)
+  useEffect(() => {
+    if (!isLoggedIn) return
+    const query = new URLSearchParams(window.location.search)
+    const work = query.get('work'), report = query.get('report')
+    if (!work || work.length > 100 || (report && report.length > 100)) return
+    queueMicrotask(() => {
+      setRecordOrderId(work); setRecordReportId(report ?? undefined)
+      setSelectedView(sessionUser?.role === 'Trabajador' ? 'my-work' : 'field-reports')
+    })
+    window.history.replaceState(null, '', window.location.pathname)
+  }, [isLoggedIn, sessionUser?.role])
   const reloadReportAlerts = reportAlerts.reload
   const canWriteOrders = can(sessionUser?.role, 'createOrders')
   const canManageOrders = can(sessionUser?.role, 'manageOrders')
@@ -224,6 +236,7 @@ function App() {
       </aside>
 
       <main className="main-panel">
+        <PushNotifications key={`push:${sessionUser?.email}`} />
         <header className="topbar">
           <div>
             <p className="eyebrow">Sistema administrativo</p>

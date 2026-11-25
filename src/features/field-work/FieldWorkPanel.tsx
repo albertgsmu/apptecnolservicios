@@ -14,7 +14,7 @@ export function FieldWorkPanel({ manager, orders, data, reload, showLocations = 
   if (manager) return <WorkRecords orders={orders} data={data} showLocations={showLocations} initialOrderId={initialOrderId} initialReportId={initialReportId} reload={reload} />
   return <section className="content-block field-work-panel">
     <WorkerAssignment order={currentOrder} count={orders.filter(order => order.status !== 'Cerrada').length} />
-    <WorkerConversations currentOrderId={currentOrder?.id} data={data} reload={reload} />
+    <WorkerConversations initialOrderId={initialOrderId} initialReportId={initialReportId} currentOrderId={currentOrder?.id} data={data} reload={reload} />
     <WorkerPhotos manager={false} currentOrder={currentOrder} orders={orders} data={data} reload={reload} />
   </section>
 }

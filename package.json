@@ -27,6 +27,7 @@
     "test:database": "node --test server/database-readiness.test.js",
     "test:access": "node --test server/user-access.test.js",
     "test:accounts": "node --test server/account-management.test.js",
+    "test:followups": "node --test server/report-followups.test.js server/reminder-scheduler.test.js",
     "db:seed": "node prisma/seed.js",
     "db:studio": "prisma studio",
     "deploy:check": "node scripts/deploy-check.mjs",
@@ -46,6 +47,7 @@
     "express": "^4.21.2",
     "file-type": "^22.3.0",
     "helmet": "^8.3.0",
+    "jose": "^6.2.18",
     "multer": "^2.5.0",
     "pg": "^8.23.1",
     "prisma": "^5.22.0",
@@ -55,7 +57,8 @@
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1"
+    "sqlite3": "^6.0.1",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { apiRequest, getApiBaseUrl } from '../lib/dataService'
 
-export type ReportAlert = { id: string; orderId: string; title: string; employeeName: string; client: string; category: string; urgency: string; status: string; unread: boolean; createdAt: string }
-export type ReportAlertData = { reports: ReportAlert[]; totals: { total: number; unread: number; pending: number; critical: number; high: number } }
+export type ReportAlert = { id: string; orderId: string; title: string; employeeName: string; client: string; category: string; urgency: string; status: string; unread: boolean; createdAt: string; assigneeId: string | null; assigneeName: string | null; dueAt: string | null; overdue: boolean }
+export type ReportAlertData = { reports: ReportAlert[]; totals: { total: number; unread: number; pending: number; critical: number; high: number; overdue: number } }
 export function useReportAlerts(identity: string | null) {
   const [state, setState] = useState<{ identity: string | null; data: ReportAlertData | null; error: string }>({ identity: null, data: null, error: '' })
   const [cue, setCue] = useState('')

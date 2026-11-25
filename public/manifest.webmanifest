@@ -1,0 +1,4 @@
+{
+  "id": "/", "name": "JP Mantenimiento Integral", "short_name": "JP Mantenimiento", "start_url": "/", "scope": "/", "display": "standalone", "lang": "es-CO", "background_color": "#061421", "theme_color": "#061421",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
